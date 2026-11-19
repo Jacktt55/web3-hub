@@ -7,6 +7,7 @@ import type {
   TokenApproval,
   YieldPool,
 } from '../types';
+import { loadCache, saveCache } from '../lib/cache';
 import {
   fetchLiveApprovals,
   fetchLiveGas,
@@ -37,14 +38,19 @@ export interface LiveData {
   lastUpdated: Date | null;
   /** True when at least one live source has answered. */
   live: boolean;
+  /** True when prices currently come from the localStorage cache (rate-limit / offline). */
+  pricesCached: boolean;
+  /** True when gas rows currently come from the localStorage cache. */
+  gasCached: boolean;
 }
 
 /**
  * Polls every live source on its own cadence:
  * prices 30s · gas 15s · yields 5m · approvals 60s · balances 60s.
  * Wallet-scoped reads (approvals, balances) only run when a visitor
- * has entered a wallet address. Any failure keeps the previous value
- * (or the public seed) — the app never goes blank.
+ * has entered a wallet address. Any failure keeps the previous value,
+ * falls back to the localStorage cache (15m prices / 10m gas), and
+ * only then to the public seed — the app never goes blank.
  */
 export function useLiveData(wallet: Address | null): LiveData {
   const [prices, setPrices] = useState<Record<string, number> | null>(null);
@@ -64,6 +70,8 @@ export function useLiveData(wallet: Address | null): LiveData {
     null,
   );
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const [pricesCached, setPricesCached] = useState(false);
+  const [gasCached, setGasCached] = useState(false);
   const pricesRef = useRef<{ prices: Record<string, number> } | null>(null);
 
   useEffect(() => {
@@ -87,9 +95,26 @@ export function useLiveData(wallet: Address | null): LiveData {
         pricesRef.current = p;
         setPrices(p.prices);
         setChanges(p.changes);
+        setPricesCached(false);
+        saveCache('web3hub-cache-prices', {
+          prices: p.prices,
+          changes: p.changes,
+        });
         setLastUpdated(new Date());
       } catch {
-        // keep previous prices / seed
+        // Rate-limit / offline: serve the cached value (15 min TTL).
+        const cached = loadCache<{
+          prices: Record<string, number>;
+          changes: Record<string, number>;
+        }>('web3hub-cache-prices', 15 * 60 * 1000);
+        if (cached && !cancelled) {
+          pricesRef.current = cached;
+          setPrices(cached.prices);
+          setChanges(cached.changes);
+          setPricesCached(true);
+          setLastUpdated(new Date());
+        }
+        // otherwise keep previous prices / seed
       }
     }
 
@@ -104,9 +129,22 @@ export function useLiveData(wallet: Address | null): LiveData {
           return prev.map((f) => byChain.get(f.chain) ?? f);
         });
         setGasLive(true);
+        setGasCached(false);
+        saveCache('web3hub-cache-gas', live);
         setLastUpdated(new Date());
       } catch {
-        // keep seed gas rows
+        // Rate-limit / offline: serve the cached rows (10 min TTL).
+        const cached = loadCache<GasFee[]>('web3hub-cache-gas', 10 * 60 * 1000);
+        if (cached && cached.length > 0 && !cancelled) {
+          setGas((prev) => {
+            const byChain = new Map(cached.map((f) => [f.chain, f]));
+            return prev.map((f) => byChain.get(f.chain) ?? f);
+          });
+          setGasLive(true);
+          setGasCached(true);
+          setLastUpdated(new Date());
+        }
+        // otherwise keep seed gas rows
       }
     }
 
@@ -186,5 +224,7 @@ export function useLiveData(wallet: Address | null): LiveData {
     tokenBalances,
     lastUpdated,
     live: prices !== null || gasLive || yieldsLive || approvalsLive,
+    pricesCached,
+    gasCached,
   };
 }

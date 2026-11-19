@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Percent,
   ShieldCheck,
@@ -6,6 +6,7 @@ import {
   Wallet,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
+import { useAccount, useDisconnect } from 'wagmi';
 import Sidebar from './components/layout/Sidebar';
 import Topbar from './components/layout/Topbar';
 import DetailDrawer from './components/layout/DetailDrawer';
@@ -36,8 +37,10 @@ import {
   formatUnits,
   formatUsd,
   isAddress,
+  shortenAddress,
 } from './lib/format';
 import { findWatch, prepareRevokeTx } from './lib/live';
+import { chainIdToName } from './lib/wagmi';
 import { generativeArt } from './lib/generativeArt';
 import { getViewMeta } from './lib/router';
 import type {
@@ -56,6 +59,7 @@ const COIN_NAMES: Record<string, string> = {
   BNB: 'BNB',
   SOL: 'Solana',
   USDT: 'Tether',
+  ARB: 'Arbitrum',
 };
 
 const APY_INFO =
@@ -130,7 +134,29 @@ export default function App() {
     return isAddress(saved) ? (saved as Address) : null;
   });
 
-  const live = useLiveData(wallet);
+  /** Real connected wallet (wagmi) — takes precedence over manual. */
+  const {
+    address: wagmiAddress,
+    chainId: wagmiChainId,
+    isConnected,
+  } = useAccount();
+  const { disconnect } = useDisconnect();
+  const activeWallet: Address | null =
+    (wagmiAddress as Address | undefined) ?? wallet;
+
+  const live = useLiveData(activeWallet);
+  const lastConnectedRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (isConnected && wagmiAddress && lastConnectedRef.current !== wagmiAddress) {
+      lastConnectedRef.current = wagmiAddress;
+      showToast(
+        `Wallet terhubung: ${shortenAddress(wagmiAddress)}${wagmiChainId ? ` · ${chainIdToName(wagmiChainId) ?? `chain ${wagmiChainId}`}` : ''}.`,
+        'success',
+      );
+    }
+    if (!isConnected) lastConnectedRef.current = null;
+  }, [isConnected, wagmiAddress, wagmiChainId]);
 
   useEffect(() => {
     if (!toast) return;
@@ -151,7 +177,7 @@ export default function App() {
 
   /** Merged portfolio rows: native balances + ERC-20 watchlist balances. */
   const portfolioRows = useMemo<PortfolioRow[]>(() => {
-    if (!wallet) return [];
+    if (!activeWallet) return [];
     const rows: PortfolioRow[] = [];
     for (const b of live.nativeBalances ?? []) {
       const chain = chainInfo(b.chain);
@@ -193,7 +219,7 @@ export default function App() {
     }
     return rows;
   }, [
-    wallet,
+    activeWallet,
     live.nativeBalances,
     live.tokenBalances,
     live.prices,
@@ -202,7 +228,7 @@ export default function App() {
 
   /** Null while the first wallet read is still pending. */
   const tableRows =
-    wallet === null
+    activeWallet === null
       ? []
       : live.nativeBalances === null && live.tokenBalances === null
         ? null
@@ -238,7 +264,7 @@ export default function App() {
 
   /** Health score from live approvals: 100 minus penalties. */
   const securityScore = useMemo(() => {
-    if (!wallet || !live.approvalsLive || live.approvals === null) {
+    if (!activeWallet || !live.approvalsLive || live.approvals === null) {
       return null;
     }
     let score = 100;
@@ -248,7 +274,7 @@ export default function App() {
       if (a.risk === 'high' || a.risk === 'critical') score -= 25;
     }
     return Math.max(0, score);
-  }, [wallet, live.approvals, live.approvalsLive]);
+  }, [activeWallet, live.approvals, live.approvalsLive]);
 
   const riskyApprovals = useMemo(
     () =>
@@ -270,6 +296,7 @@ export default function App() {
   }
 
   function handleDisconnectWallet(): void {
+    if (isConnected) disconnect();
     setWallet(null);
     window.localStorage.removeItem('web3hub-wallet');
     setWalletModalOpen(false);
@@ -279,7 +306,7 @@ export default function App() {
   async function handleRevokeRequest(
     approval: TokenApproval,
   ): Promise<void> {
-    if (!wallet) {
+    if (!activeWallet) {
       showToast('Masukkan alamat wallet dulu.');
       return;
     }
@@ -291,7 +318,7 @@ export default function App() {
     try {
       const nativePrice =
         live.prices?.[watch.chain === 'bsc' ? 'BNB' : 'ETH'] ?? 0;
-      const tx = await prepareRevokeTx(watch, nativePrice, wallet);
+      const tx = await prepareRevokeTx(watch, nativePrice, activeWallet);
       setPendingTx(tx);
       showToast(
         `Preview revoke ${approval.token} → ${approval.spender} disiapkan — cek modal untuk detail.`,
@@ -330,7 +357,7 @@ export default function App() {
       <Sidebar
         view={view}
         onNavigate={setView}
-        walletAddress={wallet}
+        walletAddress={activeWallet}
         open={sidebarOpen}
         onClose={() => setSidebarOpen(false)}
         onSecondary={(label) => showToast(`${label} — segera hadir.`)}
@@ -343,7 +370,8 @@ export default function App() {
           query={query}
           onQueryChange={setQuery}
           gasFees={live.gas}
-          wallet={wallet}
+          wallet={activeWallet}
+          chainName={chainIdToName(wagmiChainId)}
           onWalletClick={() => setWalletModalOpen(true)}
           onRefresh={() => {
             setRefreshKey((k) => k + 1);
@@ -368,7 +396,9 @@ export default function App() {
               />
               {live.live
                 ? `LIVE · terakhir diperbarui ${live.lastUpdated?.toLocaleTimeString('en-GB') ?? '—'}`
-                : 'SNAPSHOT — menunggu data live pertama…'}
+                : live.pricesCached || live.gasCached
+                  ? 'CACHE · data tersimpan dipakai (rate-limit / offline)'
+                  : 'SNAPSHOT — menunggu data live pertama…'}
             </p>
           </header>
 
@@ -378,14 +408,14 @@ export default function App() {
                 <KpiCard
                   label="Total Net Worth"
                   value={
-                    wallet === null
+                    activeWallet === null
                       ? '—'
                       : portfolioStats.hasPrice
                         ? formatUsd(portfolioStats.total)
                         : '—'
                   }
                   sub={
-                    wallet === null
+                    activeWallet === null
                       ? 'Masukkan wallet untuk melihat nilai'
                       : `${portfolioStats.assetCount} aset · ${portfolioStats.chainCount} chain`
                   }
@@ -435,21 +465,32 @@ export default function App() {
               </div>
 
               <div className="grid items-start gap-5 xl:grid-cols-[1.55fr_1fr]">
-                <GasTracker fees={live.gas} live={live.gasLive} query={q} />
+                <GasTracker
+                  fees={live.gas}
+                  live={live.gasLive}
+                  cached={live.gasCached}
+                  query={q}
+                />
                 <section className="rounded-2xl border border-line bg-surface p-6">
                   <div className="mb-4 flex items-center justify-between">
                     <h2 className="text-lg font-bold text-white">
                       Harga Live
                     </h2>
                     {live.prices ? (
-                      <Badge variant="green">CoinGecko</Badge>
+                      live.pricesCached ? (
+                        <Badge variant="amber">Cache · CoinGecko</Badge>
+                      ) : (
+                        <Badge variant="green">CoinGecko</Badge>
+                      )
                     ) : (
                       <Badge variant="blue">Menunggu…</Badge>
                     )}
                   </div>
                   {live.prices ? (
                     <ul className="space-y-2.5">
-                      {(['BTC', 'ETH', 'BNB', 'SOL', 'USDT'] as const)
+                      {(
+                        ['BTC', 'ETH', 'BNB', 'SOL', 'USDT', 'ARB'] as const
+                      )
                         .filter((s) => live.prices?.[s] !== undefined)
                         .map((s) => {
                           const change = live.changes?.[s];
@@ -555,7 +596,7 @@ export default function App() {
                 </section>
               ) : cryptoTab === 'portfolio' ? (
                 <PortfolioTable
-                  wallet={wallet}
+                  wallet={activeWallet}
                   rows={tableRows}
                   query={q}
                   live={live.prices !== null}
@@ -571,7 +612,12 @@ export default function App() {
                 />
               )}
 
-              <GasTracker fees={live.gas} live={live.gasLive} query={q} />
+              <GasTracker
+                fees={live.gas}
+                live={live.gasLive}
+                cached={live.gasCached}
+                query={q}
+              />
             </div>
           )}
 
@@ -666,7 +712,7 @@ export default function App() {
           {view === 'security' && (
             <div className="grid items-start gap-5 xl:grid-cols-2">
               <ContractScanner />
-              {wallet ? (
+              {activeWallet ? (
                 <ApprovalList
                   approvals={live.approvals}
                   approvalsLive={live.approvalsLive}
@@ -704,7 +750,7 @@ export default function App() {
                 Web3 Hub tidak menyimpan riwayat transaksi — riwayat lengkap
                 alamat ini ada di explorer tiap chain.
               </p>
-              {wallet ? (
+              {activeWallet ? (
                 <ul className="space-y-2.5">
                   {CHAINS.filter((c) =>
                     ['ethereum', 'bsc', 'base', 'arbitrum', 'polygon'].includes(
@@ -723,7 +769,7 @@ export default function App() {
                         {c.name}
                       </span>
                       <a
-                        href={`${c.explorer}/address/${wallet}`}
+                        href={`${c.explorer}/address/${activeWallet}`}
                         target="_blank"
                         rel="noreferrer"
                         className="text-xs font-semibold text-accent hover:underline"
@@ -755,7 +801,7 @@ export default function App() {
 
       <WalletModal
         open={walletModalOpen}
-        current={wallet}
+        current={activeWallet}
         onClose={() => setWalletModalOpen(false)}
         onApply={handleApplyWallet}
         onDisconnect={handleDisconnectWallet}

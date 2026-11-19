@@ -14,6 +14,8 @@ interface TopbarProps {
   gasFees?: readonly GasFee[];
   /** Active wallet address, null when no wallet is entered yet. */
   wallet: Address | null;
+  /** Connected chain name (wagmi), shown next to the address. */
+  chainName?: string | null;
   onWalletClick: () => void;
 }
 
@@ -25,6 +27,7 @@ export default function Topbar({
   onMenuClick,
   gasFees = GAS_FEES,
   wallet,
+  chainName,
   onWalletClick,
 }: TopbarProps) {
   const meta = getViewMeta(view);
@@ -99,6 +102,11 @@ export default function Topbar({
             className="flex items-center gap-1.5 rounded-xl border border-line bg-surface py-1.5 pl-3 pr-2.5 font-mono text-xs text-slate-200 transition-colors hover:border-accent/50"
           >
             <span className="h-2 w-2 shrink-0 rounded-full bg-profit" />
+            {chainName && (
+              <span className="hidden text-muted sm:inline">
+                {chainName} ·
+              </span>
+            )}
             {shortenAddress(wallet)}
             <Wallet className="h-3.5 w-3.5 text-muted" />
           </button>

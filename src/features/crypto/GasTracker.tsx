@@ -8,6 +8,8 @@ interface GasTrackerProps {
   fees: readonly GasFee[];
   /** True when at least one row comes from a live RPC read. */
   live?: boolean;
+  /** True when rows come from the localStorage cache (rate-limit). */
+  cached?: boolean;
   /** Topbar search query — filters by chain name. */
   query?: string;
 }
@@ -16,6 +18,7 @@ interface GasTrackerProps {
 export default function GasTracker({
   fees,
   live = false,
+  cached = false,
   query = '',
 }: GasTrackerProps) {
   const q = query.trim().toLowerCase();
@@ -36,7 +39,9 @@ export default function GasTracker({
             </span>
           </Tooltip>
         </h2>
-        {live ? (
+        {cached ? (
+          <Badge variant="amber">Cache · RPC rate-limit</Badge>
+        ) : live ? (
           <Badge variant="green">LIVE · RPC 15 dtk</Badge>
         ) : (
           <Badge variant="blue">Snapshot 19 Nov 2026</Badge>

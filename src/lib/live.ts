@@ -37,6 +37,7 @@ const COINGECKO_IDS = [
   'solana',
   'tether',
   'matic-network',
+  'arbitrum',
 ] as const;
 
 const COINGECKO_SYMBOL: Record<string, string> = {
@@ -46,6 +47,7 @@ const COINGECKO_SYMBOL: Record<string, string> = {
   solana: 'SOL',
   tether: 'USDT',
   'matic-network': 'POL',
+  arbitrum: 'ARB',
 };
 
 /** Live USD prices by symbol, e.g. { BTC: 63809, ETH: 1804.18 }. */
