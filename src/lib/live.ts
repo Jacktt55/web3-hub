@@ -13,6 +13,7 @@ import {
   CHAIN_ID_NUMBERS,
   SELECTORS,
   decodeAbiString,
+  decodeAddress,
   decodeUint256,
   encodeAddress,
   encodeUint256,
@@ -493,6 +494,152 @@ export async function scanContractLive(
       'Source tidak terverifikasi di Sourcify',
       'Periksa bytecode & owner sebelum berinteraksi',
     ],
+  };
+}
+
+/* ------------------------- Token risk (GoPlus) ------------------------- */
+
+const GOPLUS_CHAIN_IDS: Record<ChainId, number> = {
+  ethereum: 1,
+  bsc: 56,
+  base: 8453,
+  arbitrum: 42161,
+  polygon: 137,
+  solana: 0,
+  bitcoin: 0,
+};
+
+export interface GoPlusSecurity {
+  isHoneypot: boolean | null;
+  buyTax: number | null;
+  sellTax: number | null;
+  ownerAddress: string | null;
+  canTakeBackOwnership: boolean | null;
+  isOpenSource: boolean | null;
+  isInDex: boolean | null;
+  isMintable: boolean | null;
+  cannotBuy: boolean | null;
+  cannotSellAll: boolean | null;
+  /**
+   * Share of the top-10 holders' supply held by locked holders (0–100).
+   * Null when GoPlus returns no holder list — lock status is then
+   * unverified, not assumed.
+   */
+  lockedLpPercent: number | null;
+}
+
+/**
+ * GoPlus token_security (public, no key): honeypot flag, buy/sell tax,
+ * owner, open-source, DEX presence, mintable, locked-holder share.
+ * Returns null on any failure — the caller shows the local live checks
+ * instead of pretending the data exists.
+ */
+export async function fetchGoPlusSecurity(
+  chain: ChainId,
+  address: string,
+): Promise<GoPlusSecurity | null> {
+  const chainId = GOPLUS_CHAIN_IDS[chain];
+  if (!chainId) return null;
+  try {
+    const res = await fetch(
+      `https://api.gopluslabs.io/api/v1/token_security/${chainId}?contract_addresses=${address}`,
+      {
+        headers: { accept: 'application/json' },
+        signal: AbortSignal.timeout(12000),
+      },
+    );
+    if (!res.ok) return null;
+    const json = (await res.json()) as {
+      code?: number;
+      result?: Record<string, Record<string, unknown>>;
+    };
+    if (json.code !== 1 || !json.result) return null;
+    const r =
+      json.result[address.toLowerCase()] ??
+      Object.values(json.result)[0];
+    if (!r) return null;
+    const num = (v: unknown): number | null => {
+      const n =
+        typeof v === 'string'
+          ? Number.parseFloat(v)
+          : typeof v === 'number'
+            ? v
+            : Number.NaN;
+      return Number.isFinite(n) ? n : null;
+    };
+    const flag = (v: unknown): boolean | null =>
+      v === '1' || v === 1 ? true : v === '0' || v === 0 ? false : null;
+    const holders = Array.isArray(r.holders)
+      ? (r.holders as { percent?: string; is_locked?: number }[])
+      : [];
+    const locked = holders.reduce(
+      (s, h) => s + (h.is_locked === 1 ? (num(h.percent) ?? 0) : 0),
+      0,
+    );
+    return {
+      isHoneypot: flag(r.is_honeypot),
+      buyTax: num(r.buy_tax),
+      sellTax: num(r.sell_tax),
+      ownerAddress:
+        typeof r.owner_address === 'string' ? r.owner_address : null,
+      canTakeBackOwnership: flag(r.can_take_back_ownership),
+      isOpenSource: flag(r.is_open_source),
+      isInDex: flag(r.is_in_dex),
+      isMintable: flag(r.is_mintable),
+      cannotBuy: flag(r.cannot_buy),
+      cannotSellAll: flag(r.cannot_sell_all),
+      lockedLpPercent: holders.length > 0 ? locked : null,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/** owner() (Ownable) via eth_call — null when the call fails (not Ownable). */
+export async function fetchContractOwner(
+  chain: ChainId,
+  address: string,
+): Promise<string | null> {
+  try {
+    const raw = await ethCall(chain, address, SELECTORS.owner);
+    if (!raw || raw === '0x') return null;
+    return decodeAddress(raw);
+  } catch {
+    return null;
+  }
+}
+
+export interface ContractRiskResult {
+  address: string;
+  chain: ChainId;
+  hasCode: boolean;
+  verified: boolean;
+  /** owner() result; null = call failed (not Ownable / unknown). */
+  owner: string | null;
+  goplus: GoPlusSecurity | null;
+}
+
+/**
+ * Full contract risk check: bytecode + Sourcify (local live) in
+ * parallel with owner() and GoPlus. A null goplus means the GoPlus
+ * API did not answer — the local checks still render.
+ */
+export async function scanContractRisk(
+  address: string,
+  chain: ChainId,
+): Promise<ContractRiskResult> {
+  const [base, owner, goplus] = await Promise.all([
+    scanContractLive(address, chain).catch(() => null),
+    fetchContractOwner(chain, address),
+    fetchGoPlusSecurity(chain, address),
+  ]);
+  return {
+    address,
+    chain,
+    hasCode: base?.hasCode ?? false,
+    verified: base?.verified ?? false,
+    owner,
+    goplus,
   };
 }
 

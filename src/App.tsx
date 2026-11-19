@@ -22,12 +22,14 @@ import PortfolioTable, {
 } from './features/crypto/PortfolioTable';
 import GasTracker from './features/crypto/GasTracker';
 import YieldGrid, { poolAuditBadge } from './features/crypto/YieldGrid';
+import NftGrid from './features/nft/NftGrid';
 import NftLookup from './features/nft/NftLookup';
 import MintPassCard from './features/nft/MintPassCard';
 import ContractScanner from './features/security/ContractScanner';
 import ApprovalList from './features/security/ApprovalList';
+import ActivityLog from './features/activity/ActivityLog';
 import { useLiveData } from './hooks/useLiveData';
-import { CHAINS, MINT_PASSES, bestApy, chainInfo } from './data';
+import { CHAINS, DEMO_NFTS, MINT_PASSES, bestApy, chainInfo } from './data';
 import {
   formatCompact,
   formatPct,
@@ -36,9 +38,11 @@ import {
   isAddress,
 } from './lib/format';
 import { findWatch, prepareRevokeTx } from './lib/live';
+import { generativeArt } from './lib/generativeArt';
 import { getViewMeta } from './lib/router';
 import type {
   Address,
+  DemoNft,
   MintPass,
   PreparedTx,
   TokenApproval,
@@ -91,6 +95,7 @@ function KpiCard({ label, value, sub, icon: Icon, info }: KpiCardProps) {
 type DrawerState =
   | { kind: 'token'; row: PortfolioRow }
   | { kind: 'pool'; pool: YieldPool }
+  | { kind: 'nft'; nft: DemoNft }
   | null;
 
 export default function App() {
@@ -102,6 +107,9 @@ export default function App() {
   const [walletModalOpen, setWalletModalOpen] = useState(false);
   const [cryptoTab, setCryptoTab] = useState<'portfolio' | 'yields'>(
     'portfolio',
+  );
+  const [nftTab, setNftTab] = useState<'collection' | 'mint'>(
+    'collection',
   );
   const [tabLoading, setTabLoading] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
@@ -285,6 +293,9 @@ export default function App() {
         live.prices?.[watch.chain === 'bsc' ? 'BNB' : 'ETH'] ?? 0;
       const tx = await prepareRevokeTx(watch, nativePrice, wallet);
       setPendingTx(tx);
+      showToast(
+        `Preview revoke ${approval.token} → ${approval.spender} disiapkan — cek modal untuk detail.`,
+      );
     } catch {
       showToast('Gagal menyiapkan preview revoke — RPC tidak menjawab.');
     }
@@ -305,6 +316,10 @@ export default function App() {
     setPoolSimAmount('1000');
     setPoolSimMonths(12);
     setDrawer({ kind: 'pool', pool });
+  }
+
+  function openNftDrawer(nft: DemoNft): void {
+    setDrawer({ kind: 'nft', nft });
   }
 
   const meta = getViewMeta(view);
@@ -561,25 +576,90 @@ export default function App() {
           )}
 
           {view === 'nft' && (
-            <div className="space-y-8">
-              <section>
-                <h2 className="mb-4 text-lg font-bold text-white">
-                  Mint &amp; Event Pass
-                </h2>
-                <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-                  {MINT_PASSES.map((p) => (
-                    <MintPassCard
-                      key={p.id}
-                      pass={p}
-                      onPreview={handleMintPreview}
-                    />
-                  ))}
-                </div>
-                <p className="mt-3 text-xs text-muted">
-                  Pass di atas adalah demo tampilan — belum ada kontrak live.
-                </p>
-              </section>
-              <NftLookup />
+            <div className="space-y-5">
+              <div
+                className="flex gap-2"
+                role="tablist"
+                aria-label="NFT Hub"
+              >
+                <button
+                  role="tab"
+                  aria-selected={nftTab === 'collection'}
+                  onClick={() => setNftTab('collection')}
+                  className={`rounded-xl px-4 py-2.5 text-sm font-semibold transition-colors ${
+                    nftTab === 'collection'
+                      ? 'bg-accent text-white shadow-lg shadow-accent/20'
+                      : 'border border-line bg-surface text-slate-300 hover:text-white'
+                  }`}
+                >
+                  My Collection
+                </button>
+                <button
+                  role="tab"
+                  aria-selected={nftTab === 'mint'}
+                  onClick={() => setNftTab('mint')}
+                  className={`rounded-xl px-4 py-2.5 text-sm font-semibold transition-colors ${
+                    nftTab === 'mint'
+                      ? 'bg-accent text-white shadow-lg shadow-accent/20'
+                      : 'border border-line bg-surface text-slate-300 hover:text-white'
+                  }`}
+                >
+                  Event &amp; Utility Mint
+                </button>
+              </div>
+
+              {nftTab === 'collection' ? (
+                <>
+                  <section>
+                    <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+                      <h2 className="text-lg font-bold text-white">
+                        My Collection
+                      </h2>
+                      <Badge variant="blue">
+                        Koleksi contoh (demo) — bukan NFT asli
+                      </Badge>
+                    </div>
+                    <NftGrid items={DEMO_NFTS} onSelect={openNftDrawer} />
+                    <p className="mt-3 text-xs text-muted">
+                      Koleksi di atas adalah contoh dengan artwork SVG
+                      generatif — klik kartu untuk traits, rarity rank, dan
+                      token ID. NFT asli kamu bisa dicek lewat "Cek NFT" di
+                      bawah.
+                    </p>
+                  </section>
+                  <NftLookup />
+                </>
+              ) : (
+                <section>
+                  <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+                    <h2 className="text-lg font-bold text-white">
+                      Event &amp; Utility Mint
+                    </h2>
+                    <Badge variant="blue">
+                      Simulasi — bukan mint asli
+                    </Badge>
+                  </div>
+                  <div className="grid gap-4 md:grid-cols-2">
+                    {MINT_PASSES.map((p) => (
+                      <MintPassCard
+                        key={p.id}
+                        pass={p}
+                        onPreview={handleMintPreview}
+                        onMinted={(pass) =>
+                          showToast(
+                            `Simulasi mint berhasil — 1 “${pass.title}” dicetak (demo, bukan NFT asli).`,
+                            'success',
+                          )
+                        }
+                      />
+                    ))}
+                  </div>
+                  <p className="mt-3 text-xs text-muted">
+                    Tombol "Mint (Simulasi)" hanya menambah penghitung lokal
+                    dan progress bar — tidak ada kontrak, tidak ada transaksi.
+                  </p>
+                </section>
+              )}
             </div>
           )}
 
@@ -614,7 +694,9 @@ export default function App() {
           )}
 
           {view === 'activity' && (
-            <section className="rounded-2xl border border-line bg-surface p-6">
+            <div className="space-y-5">
+              <ActivityLog />
+              <section className="rounded-2xl border border-line bg-surface p-6">
               <h2 className="mb-1 text-lg font-bold text-white">
                 Riwayat di Explorer
               </h2>
@@ -666,6 +748,7 @@ export default function App() {
                 </div>
               )}
             </section>
+            </div>
           )}
         </main>
       </div>
@@ -697,7 +780,9 @@ export default function App() {
             ? `${drawer.row.symbol} — ${drawer.row.name}`
             : drawer?.kind === 'pool'
               ? `${drawer.pool.protocol} — ${drawer.pool.pair}`
-              : 'Detail'
+              : drawer?.kind === 'nft'
+                ? `${drawer.nft.title} (Demo)`
+                : 'Detail'
         }
       >
         {drawer?.kind === 'token' && (
@@ -893,6 +978,62 @@ export default function App() {
                 · APY bisa berubah
               </p>
             </div>
+          </div>
+        )}
+
+        {drawer?.kind === 'nft' && (
+          <div className="space-y-4 text-sm">
+            <div className="aspect-square w-full overflow-hidden rounded-xl bg-surface-2">
+              <img
+                src={generativeArt(drawer.nft.id)}
+                alt={drawer.nft.title}
+                className="aspect-square h-full w-full object-cover"
+              />
+            </div>
+            <p className="leading-relaxed text-slate-300">
+              Item demo — artwork SVG generatif, bukan NFT asli. NFT asli
+              bisa dicek lewat "Cek NFT" di tab My Collection.
+            </p>
+            <dl className="space-y-2.5">
+              <div className="flex justify-between gap-3">
+                <dt className="text-muted">Koleksi</dt>
+                <dd className="font-medium text-white">
+                  {drawer.nft.collection}
+                </dd>
+              </div>
+              <div className="flex justify-between gap-3">
+                <dt className="text-muted">Token ID</dt>
+                <dd className="font-mono text-white">
+                  #{drawer.nft.tokenId}
+                </dd>
+              </div>
+              <div className="flex justify-between gap-3">
+                <dt className="text-muted">Rarity Rank</dt>
+                <dd className="font-mono tabular-nums text-white">
+                  #{drawer.nft.rarityRank} / {drawer.nft.rarityTotal}
+                </dd>
+              </div>
+              <div className="flex justify-between gap-3">
+                <dt className="text-muted">Floor Price</dt>
+                <dd className="font-mono tabular-nums text-white">
+                  {drawer.nft.floorEth} ETH
+                </dd>
+              </div>
+              <div>
+                <dt className="mb-1.5 text-muted">Traits</dt>
+                <dd className="space-y-1.5">
+                  {drawer.nft.traits.map((t) => (
+                    <p
+                      key={t.trait}
+                      className="flex justify-between gap-3 rounded-lg border border-line bg-bg px-3 py-2"
+                    >
+                      <span className="text-muted">{t.trait}</span>
+                      <span className="text-white">{t.value}</span>
+                    </p>
+                  ))}
+                </dd>
+              </div>
+            </dl>
           </div>
         )}
       </DetailDrawer>

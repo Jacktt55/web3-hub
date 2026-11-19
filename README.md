@@ -91,6 +91,13 @@ src/
 - **Transisi skeleton 800ms** saat ganti tab atau klik "Segarkan" di Topbar; semua angka `tabular-nums`.
 - Catatan jujur: chain badge Solana ada di data referensi, tapi tabel portofolio hanya menampilkan chain EVM — alamat Solana berformat base58, tidak bisa dibaca dari alamat EVM pengunjung.
 
+## Phase 4 — NFT Hub, Security Scanner, Activity (2026-11-19)
+
+- **NFT Hub — sub-tab:** My Collection = grid 1:1 ketat (`grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5`), 8 item demo dengan artwork SVG generatif deterministik (data URI, `aspect-square object-cover` — tidak pernah ada gambar rusak). Kartu hanya menampilkan artwork, judul, nama koleksi, floor price; klik membuka `<DetailDrawer />` (traits, rarity rank, token ID). Koleksi demo berlabel jelas; NFT asli pengunjung tetap dicek lewat "Cek NFT" di bawah grid. Event & Utility Mint = 2 kartu pass demo (Genesis Pass + Nexus Summit 2026 VIP) dengan tombol "Mint (Simulasi)" — hanya menambah penghitung lokal + progress bar suplai, plus toast konfirmasi simulasi; tidak ada kontrak/transaksi.
+- **Security Scanner — Contract Risk Checker:** search bar (pilih chain + tempel alamat) + tombol contoh (USDT BSC, USDC Ethereum, WBNB BSC). Pemeriksaan live: bytecode + Sourcify v2 + `owner()` via RPC, plus GoPlus token_security (API publik tanpa key) untuk honeypot, buy/sell tax %, likuiditas, dan ownership. Hasil sebagai pill hijau/merah/amber; yang tidak bisa diverifikasi tampil "Tidak diketahui" (abu-abu), bukan tebakan. Likuiditas = bagian holder teratas yang terkunci (data GoPlus); ownership renounced = `owner()` mengembalikan 0x000…000. Wallet Approval Manager = tabel approval live pengunjung; klik Revoke menyiapkan preview + toast konfirmasi (eksekusi tetap preview-only — tidak ada signing di aplikasi).
+- **Activity Log:** riwayat contoh (demo, berlabel jelas) dengan filter All/Swap/Mint/Stake/Revoke, hash terpotong (`0x8f3a21…8d6c0`), dan pill status (Berhasil/Tertunda/Gagal). Riwayat asli pengunjung tetap lewat tautan explorer di bawah log.
+- Verifikasi: build 0 error; screenshot headless 1440px (NFT collection, NFT mint, Security, Activity) + 375px OK. GoPlus terverifikasi via curl dari VM (USDT BSC: honeypot 0, tax 0/0, owner aktif) — di sandbox headless, fetch eksternal terblokir sehingga pill GoPlus tampil "Tidak diketahui" sampai dibuka di browser asli.
+
 ## Deploy (GitHub Pages) — done
 
 ```bash

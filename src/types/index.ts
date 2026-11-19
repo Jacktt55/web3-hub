@@ -79,6 +79,25 @@ export interface MintPass {
   status: MintPassStatus;
 }
 
+/**
+ * Demo NFT for the public "My Collection" grid. These are NOT real
+ * on-chain assets — they are clearly labelled demo items with
+ * generative SVG artwork, so the grid never shows a broken image.
+ * Visitors check their own real NFTs via "Cek NFT".
+ */
+export interface DemoNft {
+  id: string;
+  title: string;
+  collection: string;
+  /** Floor price in ETH (demo figure). */
+  floorEth: number;
+  tokenId: string;
+  /** Rarity rank within the demo collection, e.g. 12 of 1000. */
+  rarityRank: number;
+  rarityTotal: number;
+  traits: { trait: string; value: string }[];
+}
+
 /* ------------------------------------------------------------------ */
 /* Pillar 3 — Web3 Security                                            */
 /* ------------------------------------------------------------------ */

@@ -158,6 +158,12 @@ export function decodeUint256(hex: string): bigint {
   return BigInt(`0x${clean.slice(-64)}`);
 }
 
+/** Decode an ABI-encoded address return value (owner(), etc.). */
+export function decodeAddress(hex: string): string {
+  const clean = hex.startsWith('0x') ? hex.slice(2) : hex;
+  return `0x${clean.slice(-40)}`;
+}
+
 /** Decode an ABI-encoded string return value (tokenURI, name, symbol). */
 export function decodeAbiString(hex: string): string {
   const clean = hex.startsWith('0x') ? hex.slice(2) : hex;
@@ -180,4 +186,6 @@ export const SELECTORS = {
   decimals: '0x313ce567',
   name: '0x06fdde03',
   symbol: '0x95d89b41',
+  /** Ownable.owner() — 0x000…0 means ownership renounced. */
+  owner: '0x8da5cb5b',
 } as const;
