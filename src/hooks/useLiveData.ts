@@ -13,6 +13,8 @@ import {
   fetchLivePrices,
   fetchLiveYields,
   fetchNativeBalances,
+  fetchTokenBalances,
+  type TokenBalance,
 } from '../lib/live';
 
 export interface LiveData {
@@ -30,6 +32,8 @@ export interface LiveData {
   approvalsLive: boolean;
   /** Native balances per EVM chain for the active wallet; null = no wallet. */
   nativeBalances: { chain: ChainId; balance: bigint }[] | null;
+  /** ERC-20 balances for the watchlist tokens; null = no wallet. */
+  tokenBalances: TokenBalance[] | null;
   lastUpdated: Date | null;
   /** True when at least one live source has answered. */
   live: boolean;
@@ -56,6 +60,9 @@ export function useLiveData(wallet: Address | null): LiveData {
   const [nativeBalances, setNativeBalances] = useState<
     { chain: ChainId; balance: bigint }[] | null
   >(null);
+  const [tokenBalances, setTokenBalances] = useState<TokenBalance[] | null>(
+    null,
+  );
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const pricesRef = useRef<{ prices: Record<string, number> } | null>(null);
 
@@ -71,6 +78,7 @@ export function useLiveData(wallet: Address | null): LiveData {
     setApprovals(null);
     setApprovalsLive(false);
     setNativeBalances(null);
+    setTokenBalances(null);
 
     async function refreshPrices(): Promise<void> {
       try {
@@ -140,11 +148,24 @@ export function useLiveData(wallet: Address | null): LiveData {
       }
     }
 
+    async function refreshTokenBalances(): Promise<void> {
+      if (!wallet) return;
+      try {
+        const b = await fetchTokenBalances(wallet);
+        if (cancelled) return;
+        setTokenBalances(b);
+        setLastUpdated(new Date());
+      } catch {
+        // keep previous balances
+      }
+    }
+
     every(refreshPrices, 30000);
     every(refreshGas, 15000);
     every(refreshYields, 300000);
     every(refreshApprovals, 60000);
     every(refreshBalances, 60000);
+    every(refreshTokenBalances, 60000);
 
     return () => {
       cancelled = true;
@@ -162,6 +183,7 @@ export function useLiveData(wallet: Address | null): LiveData {
     approvals,
     approvalsLive,
     nativeBalances,
+    tokenBalances,
     lastUpdated,
     live: prices !== null || gasLive || yieldsLive || approvalsLive,
   };

@@ -37,7 +37,7 @@ src/
 │   ├── layout/              # Sidebar, Topbar, DetailDrawer, Toast
 │   └── ui/                  # SkeletonCard, Tooltip, Badge, CopyAddressButton
 └── features/
-    ├── crypto/              # PortfolioTable, GasTracker, YieldComparator
+    ├── crypto/              # PortfolioTable, GasTracker, YieldGrid
     ├── nft/                 # NftLookup, MintPassCard
     └── security/            # ContractScanner, ApprovalList
 ```
@@ -81,6 +81,15 @@ src/
 - **Anti-clutter layout shell (2026-11-19 ~17:10 WIB, commit 22e7f19):** sidebar 240px (w-60) dengan 5 link saja + Docs/Settings di footer kompak (toast "segera hadir"); topbar gas pill ETH/Base/Arbitrum; `tabular-nums` global di `body`; `<SkeletonRow />` baru + skeleton saat approval pertama dibaca & saat scanner memindai; nilai KPI responsif (text-base → xl:text-2xl) supaya tidak terpotong di 375px. Verifikasi headless: 1440px & 375px OK — sidebar jadi drawer di mobile, gas pill tersembunyi di layar kecil, tidak ada overflow horizontal.
 - **Pembersihan untuk publik (2026-11-19 ~17:21 WIB, commit b960f56):** Web3 Hub adalah web publik, bukan alat pribadi — semua data pribadi dihapus dari kode dan dari situs live: AUGENT (status pool + claim), alamat wallet default, snapshot portofolio, galeri NFT pribadi, daftar approval contoh, audit kontrak contoh, dan riwayat aktivitas. Diganti: tidak ada wallet default (pengunjung memasukkan alamatnya sendiri), "Cek NFT" publik (kontrak + token ID apa pun), saldo native dibaca live untuk alamat pengunjung, Activity menjadi tautan explorer, dan mint pass hanya 1 demo yang jelas berlabel demo.
 - Verifikasi: build 0 error; render lokal di path `/web3-hub/` terverifikasi headless — status LIVE muncul begitu satu sumber live menjawab; di sandbox, CoinGecko/DefiLlama/gas RPC terblokir sehingga tampil snapshot, tapi approval RPC lolos dan status jadi LIVE. URL live dicek via curl: HTTP 200, judul + asset benar, JS live berisi string CoinGecko/DefiLlama/eth_gasPrice/Sourcify. Screenshot URL live dari sandbox tidak bisa (proxy blokir headless shell), render lokal adalah buktinya.
+
+## Phase 3 — Overview & Crypto workspace (2026-11-19)
+
+- **Overview KPI row (4 kartu):** Total Net Worth (jumlah saldo pengunjung × harga live), 24h Portfolio Change (perubahan tertimbang portofolio), Estimated Annual Yield / APY (pool terbaik saat ini), Security Health Score (100 dikurangi penalti approval berisiko dari watchlist live). Tanpa wallet, kartu portofolio menampilkan "—" + ajakan memasukkan wallet.
+- **Tabbed workspace di Crypto & DeFi (tanpa scroll vertikal panjang):** Tab 1 Token Portfolio — tabel Asset, Chain Badge, Price, Balance, Value, 24h %; toggle "Hide small balances (<$10)" + filter instan dari search Topbar; baris = saldo native (5 chain EVM) + saldo ERC-20 watchlist (USDT BSC, USDC ETH, WETH ETH, via `balanceOf`). Tab 2 DeFi Yield & Risk Comparator — grid 3 kolom; tiap kartu: protokol, pasangan aset, APY, TVL, badge audit (`Audited • Low Risk` hijau / `Unaudited • Medium Risk` amber — gabungan daftar protokol utama beraudit + risiko turunan APY, dijelaskan di footnote) + kalkulator deposit interaktif (estimasi hasil/tahun & /bulan).
+- **Progressive disclosure:** klik baris token atau kartu pool membuka `<DetailDrawer />` — alamat kontrak lengkap (salin), ringkasan audit, dan kontrol simulasi swap/stake (bukan transaksi).
+- **Tooltip `?` (hover + klik, untuk sentuh):** APY (di KPI), TVL (di header comparator), Gas Fee (di header Gas Tracker) — penjelasan bahasa sederhana, maks. 2 kalimat.
+- **Transisi skeleton 800ms** saat ganti tab atau klik "Segarkan" di Topbar; semua angka `tabular-nums`.
+- Catatan jujur: chain badge Solana ada di data referensi, tapi tabel portofolio hanya menampilkan chain EVM — alamat Solana berformat base58, tidak bisa dibaca dari alamat EVM pengunjung.
 
 ## Deploy (GitHub Pages) — done
 

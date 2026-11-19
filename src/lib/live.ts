@@ -360,6 +360,40 @@ export async function fetchNativeBalances(
   return out;
 }
 
+export interface TokenBalance {
+  token: string;
+  tokenAddress: string;
+  decimals: number;
+  chain: ChainId;
+  balance: bigint;
+}
+
+/**
+ * ERC-20 balances for the same watchlist tokens (balanceOf, no indexer).
+ * Zero balances are included — the caller decides what to show.
+ */
+export async function fetchTokenBalances(
+  owner: string,
+): Promise<TokenBalance[]> {
+  const out: TokenBalance[] = [];
+  for (const w of APPROVAL_WATCHLIST) {
+    try {
+      const data = SELECTORS.balanceOf + encodeAddress(owner);
+      const raw = await ethCall(w.chain, w.tokenAddress, data);
+      out.push({
+        token: w.token,
+        tokenAddress: w.tokenAddress,
+        decimals: w.decimals,
+        chain: w.chain,
+        balance: decodeUint256(raw),
+      });
+    } catch {
+      // skip this token on RPC failure
+    }
+  }
+  return out;
+}
+
 /** Live allowances for the watchlist — empty array means truly none. */
 export async function fetchLiveApprovals(
   owner: string,

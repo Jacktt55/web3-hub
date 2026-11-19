@@ -1,35 +1,40 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
-  Bitcoin,
-  Coins,
-  Flame,
+  Percent,
+  ShieldCheck,
   TrendingUp,
   Wallet,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import Sidebar from './components/layout/Sidebar';
 import Topbar from './components/layout/Topbar';
+import DetailDrawer from './components/layout/DetailDrawer';
 import Toast from './components/layout/Toast';
 import type { ToastData } from './components/layout/Toast';
 import TxPreviewModal from './components/layout/TxPreviewModal';
 import WalletModal from './components/layout/WalletModal';
 import Badge from './components/ui/Badge';
-import PortfolioTable from './features/crypto/PortfolioTable';
+import CopyAddressButton from './components/ui/CopyAddressButton';
+import SkeletonRow from './components/ui/SkeletonRow';
+import Tooltip from './components/ui/Tooltip';
+import PortfolioTable, {
+  type PortfolioRow,
+} from './features/crypto/PortfolioTable';
 import GasTracker from './features/crypto/GasTracker';
-import YieldComparator from './features/crypto/YieldComparator';
+import YieldGrid, { poolAuditBadge } from './features/crypto/YieldGrid';
 import NftLookup from './features/nft/NftLookup';
 import MintPassCard from './features/nft/MintPassCard';
 import ContractScanner from './features/security/ContractScanner';
 import ApprovalList from './features/security/ApprovalList';
 import { useLiveData } from './hooks/useLiveData';
+import { CHAINS, MINT_PASSES, bestApy, chainInfo } from './data';
 import {
-  CHAINS,
-  MINT_PASSES,
-  bestApy,
-  chainInfo,
-  cheapestGas,
-} from './data';
-import { formatPct, formatUsd, isAddress } from './lib/format';
+  formatCompact,
+  formatPct,
+  formatUnits,
+  formatUsd,
+  isAddress,
+} from './lib/format';
 import { findWatch, prepareRevokeTx } from './lib/live';
 import { getViewMeta } from './lib/router';
 import type {
@@ -38,6 +43,7 @@ import type {
   PreparedTx,
   TokenApproval,
   View,
+  YieldPool,
 } from './types';
 
 const COIN_NAMES: Record<string, string> = {
@@ -48,19 +54,31 @@ const COIN_NAMES: Record<string, string> = {
   USDT: 'Tether',
 };
 
+const APY_INFO =
+  'APY (Annual Percentage Yield) = perkiraan hasil setahun kalau dana disimpan di pool, sudah termasuk bunga berbunga. Bukan jaminan — APY bisa berubah sewaktu-waktu.';
+
 interface KpiCardProps {
   label: string;
   value: string;
   sub: string;
   icon: LucideIcon;
+  /** Plain-language "?" explanation shown next to the label. */
+  info?: string;
 }
 
-function KpiCard({ label, value, sub, icon: Icon }: KpiCardProps) {
+function KpiCard({ label, value, sub, icon: Icon, info }: KpiCardProps) {
   return (
     <div className="rounded-2xl border border-line bg-surface p-6 transition-colors hover:border-line/80">
       <p className="flex items-center gap-2 text-xs font-medium text-muted">
         <Icon className="h-4 w-4 text-accent-2" />
         {label}
+        {info && (
+          <Tooltip text={info}>
+            <span className="flex h-4 w-4 cursor-help items-center justify-center rounded-full border border-line bg-surface-2 text-[10px] font-bold text-muted hover:border-accent hover:text-white">
+              ?
+            </span>
+          </Tooltip>
+        )}
       </p>
       <p className="mt-2.5 truncate font-mono text-base font-bold tabular-nums text-white sm:text-xl xl:text-2xl">
         {value}
@@ -70,6 +88,11 @@ function KpiCard({ label, value, sub, icon: Icon }: KpiCardProps) {
   );
 }
 
+type DrawerState =
+  | { kind: 'token'; row: PortfolioRow }
+  | { kind: 'pool'; pool: YieldPool }
+  | null;
+
 export default function App() {
   const [view, setView] = useState<View>('overview');
   const [query, setQuery] = useState('');
@@ -77,6 +100,15 @@ export default function App() {
   const [toast, setToast] = useState<ToastData | null>(null);
   const [pendingTx, setPendingTx] = useState<PreparedTx | null>(null);
   const [walletModalOpen, setWalletModalOpen] = useState(false);
+  const [cryptoTab, setCryptoTab] = useState<'portfolio' | 'yields'>(
+    'portfolio',
+  );
+  const [tabLoading, setTabLoading] = useState(false);
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [drawer, setDrawer] = useState<DrawerState>(null);
+  const [tokenSimAmount, setTokenSimAmount] = useState('1');
+  const [poolSimAmount, setPoolSimAmount] = useState('1000');
+  const [poolSimMonths, setPoolSimMonths] = useState(12);
   /**
    * Active wallet — the VISITOR's own address, saved in this browser
    * only. Null = no wallet entered yet. The app has no default wallet
@@ -98,12 +130,118 @@ export default function App() {
     return () => window.clearTimeout(t);
   }, [toast]);
 
+  /** 800ms skeleton transition when switching tabs or hitting Refresh. */
+  useEffect(() => {
+    setTabLoading(true);
+    const t = window.setTimeout(() => setTabLoading(false), 800);
+    return () => window.clearTimeout(t);
+  }, [cryptoTab, refreshKey]);
+
   function showToast(message: string, kind: ToastData['kind'] = 'info'): void {
     setToast({ id: Date.now(), message, kind });
   }
 
-  const cheapest = useMemo(() => cheapestGas(live.gas), [live.gas]);
+  /** Merged portfolio rows: native balances + ERC-20 watchlist balances. */
+  const portfolioRows = useMemo<PortfolioRow[]>(() => {
+    if (!wallet) return [];
+    const rows: PortfolioRow[] = [];
+    for (const b of live.nativeBalances ?? []) {
+      const chain = chainInfo(b.chain);
+      const symbol = chain.nativeSymbol;
+      rows.push({
+        id: `native-${b.chain}`,
+        symbol,
+        name: `${chain.name} (native)`,
+        chain: b.chain,
+        balance: Number(formatUnits(b.balance, 18)),
+        priceUsd: live.prices?.[symbol],
+        change24h: live.changes?.[symbol],
+      });
+    }
+    for (const t of live.tokenBalances ?? []) {
+      const isStable = t.token === 'USDT' || t.token === 'USDC';
+      const priceSymbol = t.token === 'WETH' ? 'ETH' : t.token;
+      rows.push({
+        id: `token-${t.token}-${t.chain}`,
+        symbol: t.token,
+        name:
+          t.token === 'WETH'
+            ? 'Wrapped Ether'
+            : t.token === 'USDT'
+              ? 'Tether'
+              : t.token === 'USDC'
+                ? 'USD Coin'
+                : t.token,
+        chain: t.chain,
+        balance: Number(formatUnits(t.balance, t.decimals)),
+        priceUsd: isStable
+          ? (live.prices?.USDT ?? 1)
+          : live.prices?.[priceSymbol],
+        change24h: isStable
+          ? (live.changes?.USDT ?? 0)
+          : live.changes?.[priceSymbol],
+        contract: t.tokenAddress as Address,
+      });
+    }
+    return rows;
+  }, [
+    wallet,
+    live.nativeBalances,
+    live.tokenBalances,
+    live.prices,
+    live.changes,
+  ]);
+
+  /** Null while the first wallet read is still pending. */
+  const tableRows =
+    wallet === null
+      ? []
+      : live.nativeBalances === null && live.tokenBalances === null
+        ? null
+        : portfolioRows;
+
+  const portfolioStats = useMemo(() => {
+    const valued = portfolioRows.filter(
+      (r) => r.priceUsd !== undefined && r.change24h !== undefined,
+    );
+    const total = portfolioRows.reduce(
+      (s, r) => s + (r.priceUsd !== undefined ? r.balance * r.priceUsd : 0),
+      0,
+    );
+    const denom = valued.reduce(
+      (s, r) => s + r.balance * (r.priceUsd ?? 0),
+      0,
+    );
+    const weighted = valued.reduce(
+      (s, r) => s + r.balance * (r.priceUsd ?? 0) * (r.change24h ?? 0),
+      0,
+    );
+    return {
+      total,
+      changePct: denom > 0 ? weighted / denom : undefined,
+      changeUsd: weighted / 100,
+      assetCount: portfolioRows.length,
+      chainCount: new Set(portfolioRows.map((r) => r.chain)).size,
+      hasPrice: portfolioRows.some((r) => r.priceUsd !== undefined),
+    };
+  }, [portfolioRows]);
+
   const bestPool = useMemo(() => bestApy(live.yields), [live.yields]);
+
+  /** Health score from live approvals: 100 minus penalties. */
+  const securityScore = useMemo(() => {
+    if (!wallet || !live.approvalsLive || live.approvals === null) {
+      return null;
+    }
+    let score = 100;
+    for (const a of live.approvals) {
+      if (a.allowance === 'Unlimited') score -= 20;
+      if (a.risk === 'medium') score -= 10;
+      if (a.risk === 'high' || a.risk === 'critical') score -= 25;
+    }
+    return Math.max(0, score);
+  }, [wallet, live.approvals, live.approvalsLive]);
+
   const riskyApprovals = useMemo(
     () =>
       (live.approvals ?? []).filter(
@@ -158,6 +296,17 @@ export default function App() {
     );
   }
 
+  function openTokenDrawer(row: PortfolioRow): void {
+    setTokenSimAmount('1');
+    setDrawer({ kind: 'token', row });
+  }
+
+  function openPoolDrawer(pool: YieldPool): void {
+    setPoolSimAmount('1000');
+    setPoolSimMonths(12);
+    setDrawer({ kind: 'pool', pool });
+  }
+
   const meta = getViewMeta(view);
   const q = query.trim();
 
@@ -181,11 +330,12 @@ export default function App() {
           gasFees={live.gas}
           wallet={wallet}
           onWalletClick={() => setWalletModalOpen(true)}
-          onRefresh={() =>
+          onRefresh={() => {
+            setRefreshKey((k) => k + 1);
             showToast(
-              'Data live menyegarkan otomatis (harga 30 dtk, gas 15 dtk).',
-            )
-          }
+              'Menyegarkan tampilan — data live menyusul otomatis (harga 30 dtk, gas 15 dtk).',
+            );
+          }}
           onMenuClick={() => setSidebarOpen(true)}
         />
 
@@ -211,50 +361,61 @@ export default function App() {
             <div className="space-y-5">
               <div className="grid grid-cols-2 gap-4 xl:grid-cols-4">
                 <KpiCard
-                  label="Harga BTC"
+                  label="Total Net Worth"
                   value={
-                    live.prices?.BTC ? formatUsd(live.prices.BTC) : '—'
+                    wallet === null
+                      ? '—'
+                      : portfolioStats.hasPrice
+                        ? formatUsd(portfolioStats.total)
+                        : '—'
                   }
                   sub={
-                    live.changes?.BTC !== undefined
-                      ? `24j ${formatPct(live.changes.BTC)}`
-                      : 'CoinGecko · 30 dtk'
+                    wallet === null
+                      ? 'Masukkan wallet untuk melihat nilai'
+                      : `${portfolioStats.assetCount} aset · ${portfolioStats.chainCount} chain`
                   }
-                  icon={Bitcoin}
+                  icon={Wallet}
                 />
                 <KpiCard
-                  label="Harga ETH"
+                  label="24h Portfolio Change"
                   value={
-                    live.prices?.ETH ? formatUsd(live.prices.ETH) : '—'
+                    portfolioStats.changePct !== undefined
+                      ? formatPct(portfolioStats.changePct)
+                      : '—'
                   }
                   sub={
-                    live.changes?.ETH !== undefined
-                      ? `24j ${formatPct(live.changes.ETH)}`
-                      : 'CoinGecko · 30 dtk'
-                  }
-                  icon={Coins}
-                />
-                <KpiCard
-                  label="Gas Termurah"
-                  value={
-                    cheapest ? formatUsd(cheapest.transferUsd) : '—'
-                  }
-                  sub={
-                    cheapest
-                      ? `Transfer native termurah · ${chainInfo(cheapest.chain).name}`
-                      : 'Biaya transfer native terendah'
-                  }
-                  icon={Flame}
-                />
-                <KpiCard
-                  label="Yield Terbaik"
-                  value={bestPool ? `${bestPool.apy.toFixed(1)}% APY` : '—'}
-                  sub={
-                    bestPool
-                      ? `${bestPool.protocol} · ${bestPool.pair}`
-                      : 'Tidak ada pool'
+                    portfolioStats.changePct !== undefined
+                      ? `≈ ${formatUsd(portfolioStats.changeUsd)} dalam 24j`
+                      : 'Masukkan wallet untuk melihat perubahan'
                   }
                   icon={TrendingUp}
+                />
+                <KpiCard
+                  label="Estimated Annual Yield (APY)"
+                  value={bestPool ? `${bestPool.apy.toFixed(1)}%` : '—'}
+                  sub={
+                    bestPool
+                      ? `Pool terbaik · ${bestPool.protocol} · ${bestPool.pair}`
+                      : 'Tidak ada pool'
+                  }
+                  icon={Percent}
+                  info={APY_INFO}
+                />
+                <KpiCard
+                  label="Security Health Score"
+                  value={
+                    securityScore !== null ? `${securityScore}/100` : '—'
+                  }
+                  sub={
+                    securityScore === null
+                      ? 'Masukkan wallet untuk skor'
+                      : securityScore >= 80
+                        ? 'Baik — approval terpantau bersih'
+                        : securityScore >= 50
+                          ? 'Cukup — ada approval berisiko'
+                          : 'Perlu perhatian — banyak approval berisiko'
+                  }
+                  icon={ShieldCheck}
                 />
               </div>
 
@@ -335,21 +496,67 @@ export default function App() {
 
           {view === 'crypto' && (
             <div className="space-y-5">
-              <PortfolioTable
-                wallet={wallet}
-                balances={live.nativeBalances}
-                livePrices={live.prices}
-                liveChanges={live.changes}
-                onConnect={() => setWalletModalOpen(true)}
-              />
-              <div className="grid items-start gap-5 xl:grid-cols-2">
-                <GasTracker fees={live.gas} live={live.gasLive} query={q} />
-                <YieldComparator
+              <div
+                className="flex gap-2"
+                role="tablist"
+                aria-label="Crypto workspace"
+              >
+                <button
+                  role="tab"
+                  aria-selected={cryptoTab === 'portfolio'}
+                  onClick={() => setCryptoTab('portfolio')}
+                  className={`rounded-xl px-4 py-2.5 text-sm font-semibold transition-colors ${
+                    cryptoTab === 'portfolio'
+                      ? 'bg-accent text-white shadow-lg shadow-accent/20'
+                      : 'border border-line bg-surface text-slate-300 hover:text-white'
+                  }`}
+                >
+                  Token Portfolio
+                </button>
+                <button
+                  role="tab"
+                  aria-selected={cryptoTab === 'yields'}
+                  onClick={() => setCryptoTab('yields')}
+                  className={`rounded-xl px-4 py-2.5 text-sm font-semibold transition-colors ${
+                    cryptoTab === 'yields'
+                      ? 'bg-accent text-white shadow-lg shadow-accent/20'
+                      : 'border border-line bg-surface text-slate-300 hover:text-white'
+                  }`}
+                >
+                  DeFi Yield &amp; Risk
+                </button>
+              </div>
+
+              {tabLoading ? (
+                <section className="rounded-2xl border border-line bg-surface p-6">
+                  <div className="space-y-2.5">
+                    <SkeletonRow />
+                    <SkeletonRow />
+                    <SkeletonRow />
+                    <p className="pt-1 text-center text-xs text-muted">
+                      Memuat…
+                    </p>
+                  </div>
+                </section>
+              ) : cryptoTab === 'portfolio' ? (
+                <PortfolioTable
+                  wallet={wallet}
+                  rows={tableRows}
+                  query={q}
+                  live={live.prices !== null}
+                  onSelect={openTokenDrawer}
+                  onConnect={() => setWalletModalOpen(true)}
+                />
+              ) : (
+                <YieldGrid
                   pools={live.yields}
                   live={live.yieldsLive}
                   query={q}
+                  onSelect={openPoolDrawer}
                 />
-              </div>
+              )}
+
+              <GasTracker fees={live.gas} live={live.gasLive} query={q} />
             </div>
           )}
 
@@ -481,6 +688,214 @@ export default function App() {
           )
         }
       />
+
+      <DetailDrawer
+        open={drawer !== null}
+        onClose={() => setDrawer(null)}
+        title={
+          drawer?.kind === 'token'
+            ? `${drawer.row.symbol} — ${drawer.row.name}`
+            : drawer?.kind === 'pool'
+              ? `${drawer.pool.protocol} — ${drawer.pool.pair}`
+              : 'Detail'
+        }
+      >
+        {drawer?.kind === 'token' && (
+          <div className="space-y-4 text-sm">
+            <dl className="space-y-2.5">
+              <div className="flex justify-between gap-3">
+                <dt className="text-muted">Chain</dt>
+                <dd className="font-medium text-white">
+                  {chainInfo(drawer.row.chain).name}
+                </dd>
+              </div>
+              <div className="flex items-center justify-between gap-3">
+                <dt className="text-muted">Kontrak</dt>
+                <dd>
+                  {drawer.row.contract ? (
+                    <CopyAddressButton address={drawer.row.contract} />
+                  ) : (
+                    <span className="text-slate-300">
+                      Native token — tidak ada alamat kontrak
+                    </span>
+                  )}
+                </dd>
+              </div>
+              <div className="flex justify-between gap-3">
+                <dt className="text-muted">Saldo</dt>
+                <dd className="font-mono tabular-nums text-white">
+                  {drawer.row.balance.toLocaleString('en-US', {
+                    maximumFractionDigits: 6,
+                  })}{' '}
+                  {drawer.row.symbol}
+                </dd>
+              </div>
+              <div className="flex justify-between gap-3">
+                <dt className="text-muted">Harga</dt>
+                <dd className="font-mono tabular-nums text-white">
+                  {drawer.row.priceUsd !== undefined
+                    ? formatUsd(drawer.row.priceUsd)
+                    : '—'}
+                </dd>
+              </div>
+              <div className="flex justify-between gap-3">
+                <dt className="text-muted">Nilai</dt>
+                <dd className="font-mono tabular-nums text-white">
+                  {drawer.row.priceUsd !== undefined
+                    ? formatUsd(drawer.row.balance * drawer.row.priceUsd)
+                    : '—'}
+                </dd>
+              </div>
+            </dl>
+            {drawer.row.contract && (
+              <a
+                href={`${chainInfo(drawer.row.chain).explorer}/token/${drawer.row.contract}`}
+                target="_blank"
+                rel="noreferrer"
+                className="block text-center text-xs font-semibold text-accent hover:underline"
+              >
+                Lihat kontrak di explorer ↗
+              </a>
+            )}
+            <div className="rounded-xl border border-line bg-bg p-3.5">
+              <label
+                htmlFor="drawer-swap-amount"
+                className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide text-muted"
+              >
+                Simulasi swap (bukan transaksi)
+              </label>
+              <div className="flex items-center gap-2">
+                <input
+                  id="drawer-swap-amount"
+                  value={tokenSimAmount}
+                  onChange={(e) =>
+                    setTokenSimAmount(e.target.value.replace(/[^0-9.]/g, ''))
+                  }
+                  inputMode="decimal"
+                  aria-label={`Jumlah ${drawer.row.symbol}`}
+                  className="min-w-0 flex-1 rounded-lg border border-line bg-surface px-2.5 py-1.5 font-mono text-sm tabular-nums text-ink focus:border-accent focus:outline-none"
+                />
+                <span className="font-mono text-sm text-muted">
+                  {drawer.row.symbol}
+                </span>
+              </div>
+              <p className="mt-2 font-mono text-xs tabular-nums text-slate-300">
+                ≈{' '}
+                {drawer.row.priceUsd !== undefined &&
+                Number.parseFloat(tokenSimAmount) > 0
+                  ? formatUsd(
+                      Number.parseFloat(tokenSimAmount) *
+                        drawer.row.priceUsd,
+                    )
+                  : '—'}{' '}
+                USD
+              </p>
+            </div>
+          </div>
+        )}
+
+        {drawer?.kind === 'pool' && (
+          <div className="space-y-4 text-sm">
+            <dl className="space-y-2.5">
+              <div className="flex justify-between gap-3">
+                <dt className="text-muted">Chain</dt>
+                <dd className="font-medium text-white">
+                  {chainInfo(drawer.pool.chain).name}
+                </dd>
+              </div>
+              <div className="flex justify-between gap-3">
+                <dt className="text-muted">APY</dt>
+                <dd className="font-mono font-bold tabular-nums text-profit">
+                  {drawer.pool.apy.toFixed(1)}%
+                </dd>
+              </div>
+              <div className="flex justify-between gap-3">
+                <dt className="text-muted">TVL</dt>
+                <dd className="font-mono tabular-nums text-white">
+                  ${formatCompact(drawer.pool.tvlUsd)}
+                </dd>
+              </div>
+              <div className="flex justify-between gap-3">
+                <dt className="text-muted">Risiko</dt>
+                <dd className="font-medium capitalize text-white">
+                  {drawer.pool.risk}
+                </dd>
+              </div>
+              <div className="flex justify-between gap-3">
+                <dt className="text-muted">Kategori</dt>
+                <dd className="font-medium capitalize text-white">
+                  {drawer.pool.category}
+                </dd>
+              </div>
+              <div className="flex items-center justify-between gap-3">
+                <dt className="text-muted">Audit</dt>
+                <dd>
+                  <Badge variant={poolAuditBadge(drawer.pool).variant}>
+                    {poolAuditBadge(drawer.pool).label}
+                  </Badge>
+                </dd>
+              </div>
+            </dl>
+            <p className="leading-relaxed text-slate-300">
+              Ringkasan audit: badge di atas adalah gabungan daftar protokol
+              utama beraudit + skor risiko turunan APY — bukan laporan audit
+              lengkap. APY tinggi biasanya berarti risiko lebih tinggi.
+              Selalu cek audit resmi protokol sebelum deposit.
+            </p>
+            <div className="rounded-xl border border-line bg-bg p-3.5">
+              <label
+                htmlFor="drawer-deposit-amount"
+                className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide text-muted"
+              >
+                Simulasi stake (bukan transaksi)
+              </label>
+              <div className="flex items-center gap-2">
+                <span className="font-mono text-sm text-muted">$</span>
+                <input
+                  id="drawer-deposit-amount"
+                  value={poolSimAmount}
+                  onChange={(e) =>
+                    setPoolSimAmount(e.target.value.replace(/[^0-9.]/g, ''))
+                  }
+                  inputMode="decimal"
+                  aria-label="Jumlah deposit dalam USD"
+                  className="min-w-0 flex-1 rounded-lg border border-line bg-surface px-2.5 py-1.5 font-mono text-sm tabular-nums text-ink focus:border-accent focus:outline-none"
+                />
+                <select
+                  value={poolSimMonths}
+                  onChange={(e) =>
+                    setPoolSimMonths(Number.parseInt(e.target.value, 10))
+                  }
+                  aria-label="Durasi simulasi"
+                  className="rounded-lg border border-line bg-surface px-2 py-1.5 text-sm text-ink focus:border-accent focus:outline-none"
+                >
+                  <option value={1}>1 bulan</option>
+                  <option value={3}>3 bulan</option>
+                  <option value={6}>6 bulan</option>
+                  <option value={12}>1 tahun</option>
+                </select>
+              </div>
+              <p className="mt-2 font-mono text-xs tabular-nums text-slate-300">
+                Estimasi hasil:{' '}
+                {Number.parseFloat(poolSimAmount) > 0 ? (
+                  <b className="text-profit">
+                    $
+                    {(
+                      (Number.parseFloat(poolSimAmount) *
+                        drawer.pool.apy) /
+                      100 *
+                      (poolSimMonths / 12)
+                    ).toLocaleString('en-US', { maximumFractionDigits: 2 })}
+                  </b>
+                ) : (
+                  '—'
+                )}{' '}
+                · APY bisa berubah
+              </p>
+            </div>
+          </div>
+        )}
+      </DetailDrawer>
 
       <Toast toast={toast} />
     </div>

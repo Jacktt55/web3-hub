@@ -2,6 +2,7 @@ import { chainInfo, cheapestGas } from '../../data';
 import { formatUsd } from '../../lib/format';
 import type { GasFee } from '../../types';
 import Badge from '../../components/ui/Badge';
+import Tooltip from '../../components/ui/Tooltip';
 
 interface GasTrackerProps {
   fees: readonly GasFee[];
@@ -27,7 +28,14 @@ export default function GasTracker({
   return (
     <section className="rounded-2xl border border-line bg-surface p-6">
       <div className="mb-1 flex items-center justify-between gap-3">
-        <h2 className="text-lg font-bold text-white">Gas Tracker</h2>
+        <h2 className="flex items-center gap-2 text-lg font-bold text-white">
+          Gas Tracker
+          <Tooltip text="Gas fee = biaya untuk menjalankan transaksi di blockchain. Makin ramai jaringan, makin mahal. Biaya ini dibayar ke validator, bukan ke Web3 Hub.">
+            <span className="flex h-4 w-4 cursor-help items-center justify-center rounded-full border border-line bg-surface-2 text-[10px] font-bold text-muted hover:border-accent hover:text-white">
+              ?
+            </span>
+          </Tooltip>
+        </h2>
         {live ? (
           <Badge variant="green">LIVE · RPC 15 dtk</Badge>
         ) : (
