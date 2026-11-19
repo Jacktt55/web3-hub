@@ -1,24 +1,40 @@
 import { useState } from 'react';
-import { AlertTriangle, Check, Copy, Info, X } from 'lucide-react';
+import { AlertTriangle, Check, Copy, Info, Send, X } from 'lucide-react';
 import { chainInfo } from '../../data';
 import type { PreparedTx } from '../../types';
 import CopyAddressButton from '../ui/CopyAddressButton';
+
+export interface TxSendState {
+  status: 'idle' | 'pending' | 'confirming' | 'success' | 'error';
+  hash?: string;
+  error?: string;
+}
 
 interface TxPreviewModalProps {
   tx: PreparedTx | null;
   onClose: () => void;
   onCopied: () => void;
+  /** True when a real wallet is connected — the revoke can be sent. */
+  canSend?: boolean;
+  /** Live send status, driven by wagmi in the parent. */
+  sendState?: TxSendState;
+  /** Sends the real approve(spender, 0) via the connected wallet. */
+  onSend?: () => void;
 }
 
 /**
- * Transaction preview modal — PREVIEW ONLY.
- * The app never signs or broadcasts. The visitor executes the
- * transaction from their own wallet after checking the details.
+ * Transaction preview modal. Always shows the full preview first.
+ * When a real wallet is connected, the visitor can send the real
+ * transaction from this modal (their wallet still asks for the final
+ * signature). Without a connected wallet it stays preview-only.
  */
 export default function TxPreviewModal({
   tx,
   onClose,
   onCopied,
+  canSend = false,
+  sendState = { status: 'idle' },
+  onSend,
 }: TxPreviewModalProps) {
   const [copied, setCopied] = useState(false);
   if (!tx) return null;
@@ -69,9 +85,20 @@ export default function TxPreviewModal({
           <div className="flex items-start gap-3 rounded-xl border border-accent/30 bg-accent/10 p-3.5 text-sm text-slate-300">
             <Info className="mt-0.5 h-4 w-4 shrink-0 text-accent-2" />
             <p>
-              Ini <b className="text-white">preview saja</b> — tidak ada
-              transaksi yang dikirim dari aplikasi ini. Eksekusi dari wallet
-              kamu sendiri setelah memeriksa ulang detailnya.
+              {canSend ? (
+                <>
+                  Periksa detail di bawah, lalu kirim dari wallet kamu —
+                  wallet akan meminta tanda tangan terakhir. Biaya gas
+                  ditanggung wallet kamu.
+                </>
+              ) : (
+                <>
+                  Ini <b className="text-white">preview saja</b> — tidak ada
+                  transaksi yang dikirim dari aplikasi ini. Hubungkan wallet
+                  untuk mengirim revoke ini, atau eksekusi dari wallet kamu
+                  sendiri setelah memeriksa ulang detailnya.
+                </>
+              )}
             </p>
           </div>
 
@@ -138,6 +165,23 @@ export default function TxPreviewModal({
           </dl>
 
           <div className="flex flex-col gap-2.5 sm:flex-row">
+            {canSend && sendState.status !== 'success' && (
+              <button
+                onClick={onSend}
+                disabled={
+                  sendState.status === 'pending' ||
+                  sendState.status === 'confirming'
+                }
+                className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-accent px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-accent/20 transition-colors hover:bg-blue-600 disabled:cursor-wait disabled:opacity-60"
+              >
+                <Send className="h-4 w-4" />
+                {sendState.status === 'pending'
+                  ? 'Menunggu tanda tangan…'
+                  : sendState.status === 'confirming'
+                    ? 'Menunggu konfirmasi…'
+                    : 'Kirim revoke dari wallet'}
+              </button>
+            )}
             <button
               onClick={() => void copySummary()}
               className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-accent px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-accent/20 transition-colors hover:bg-blue-600"
@@ -156,6 +200,24 @@ export default function TxPreviewModal({
               Tutup
             </button>
           </div>
+          {sendState.status === 'success' && sendState.hash && (
+            <p className="rounded-xl border border-profit/30 bg-profit/10 p-3 text-center text-sm text-profit">
+              Revoke terkirim —{' '}
+              <a
+                href={`${chain.explorer}/tx/${sendState.hash}`}
+                target="_blank"
+                rel="noreferrer"
+                className="font-mono font-semibold underline"
+              >
+                {sendState.hash.slice(0, 10)}…{sendState.hash.slice(-8)}
+              </a>
+            </p>
+          )}
+          {sendState.status === 'error' && (
+            <p className="rounded-xl border border-loss/30 bg-loss/10 p-3 text-center text-sm text-loss">
+              {sendState.error ?? 'Transaksi gagal atau dibatalkan.'}
+            </p>
+          )}
           <p className="text-center text-xs text-muted">
             Salin ringkasan dan eksekusi dari wallet kamu — selalu periksa
             chain, alamat & calldata sebelum menandatangani.

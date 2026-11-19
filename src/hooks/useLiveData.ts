@@ -1,13 +1,20 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { GAS_FEES, YIELD_POOLS } from '../data';
 import type {
   Address,
+  AlchemyNft,
+  AlchemyTokenBalance,
   ChainId,
   GasFee,
   TokenApproval,
   YieldPool,
 } from '../types';
 import { loadCache, saveCache } from '../lib/cache';
+import {
+  fetchAlchemyNfts,
+  fetchAlchemyTokenBalances,
+  getAlchemyKey,
+} from '../lib/alchemy';
 import {
   fetchLiveApprovals,
   fetchLiveGas,
@@ -35,6 +42,12 @@ export interface LiveData {
   nativeBalances: { chain: ChainId; balance: bigint }[] | null;
   /** ERC-20 balances for the watchlist tokens; null = no wallet. */
   tokenBalances: TokenBalance[] | null;
+  /** Real ERC-20 balances from Alchemy (connected wallet + key only). */
+  alchemyTokens: AlchemyTokenBalance[] | null;
+  /** Real NFTs from Alchemy; null = Alchemy not in use (demo mode). */
+  alchemyNfts: AlchemyNft[] | null;
+  /** True while the Alchemy NFT read is in flight. */
+  alchemyNftsLoading: boolean;
   lastUpdated: Date | null;
   /** True when at least one live source has answered. */
   live: boolean;
@@ -42,6 +55,8 @@ export interface LiveData {
   pricesCached: boolean;
   /** True when gas rows currently come from the localStorage cache. */
   gasCached: boolean;
+  /** Re-read live approvals now (used after a real revoke). */
+  refreshApprovals: () => void;
 }
 
 /**
@@ -51,8 +66,16 @@ export interface LiveData {
  * has entered a wallet address. Any failure keeps the previous value,
  * falls back to the localStorage cache (15m prices / 10m gas), and
  * only then to the public seed — the app never goes blank.
+ * When a real wallet is connected AND VITE_ALCHEMY_API_KEY is set,
+ * ERC-20 balances and NFTs also come from Alchemy; otherwise the
+ * app stays in demo mode (direct-RPC watchlist + demo NFTs).
  */
-export function useLiveData(wallet: Address | null): LiveData {
+export function useLiveData(
+  wallet: Address | null,
+  opts?: { connected?: boolean; chainId?: number },
+): LiveData {
+  const connected = opts?.connected ?? false;
+  const chainId = opts?.chainId;
   const [prices, setPrices] = useState<Record<string, number> | null>(null);
   const [changes, setChanges] = useState<Record<string, number> | null>(
     null,
@@ -69,10 +92,20 @@ export function useLiveData(wallet: Address | null): LiveData {
   const [tokenBalances, setTokenBalances] = useState<TokenBalance[] | null>(
     null,
   );
+  const [alchemyTokens, setAlchemyTokens] = useState<
+    AlchemyTokenBalance[] | null
+  >(null);
+  const [alchemyNfts, setAlchemyNfts] = useState<AlchemyNft[] | null>(null);
+  const [alchemyNftsLoading, setAlchemyNftsLoading] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [pricesCached, setPricesCached] = useState(false);
   const [gasCached, setGasCached] = useState(false);
   const pricesRef = useRef<{ prices: Record<string, number> } | null>(null);
+  const refreshApprovalsRef = useRef<() => void>(() => {});
+
+  const refreshApprovals = useCallback(() => {
+    refreshApprovalsRef.current();
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -87,6 +120,9 @@ export function useLiveData(wallet: Address | null): LiveData {
     setApprovalsLive(false);
     setNativeBalances(null);
     setTokenBalances(null);
+    setAlchemyTokens(null);
+    setAlchemyNfts(null);
+    setAlchemyNftsLoading(false);
 
     async function refreshPrices(): Promise<void> {
       try {
@@ -173,6 +209,7 @@ export function useLiveData(wallet: Address | null): LiveData {
         if (!cancelled) setApprovals([]);
       }
     }
+    refreshApprovalsRef.current = () => void refreshApprovals();
 
     async function refreshBalances(): Promise<void> {
       if (!wallet) return;
@@ -198,18 +235,56 @@ export function useLiveData(wallet: Address | null): LiveData {
       }
     }
 
+    async function refreshAlchemyTokens(): Promise<void> {
+      if (!wallet || !connected || !getAlchemyKey() || !chainId) {
+        setAlchemyTokens(null);
+        return;
+      }
+      try {
+        const t = await fetchAlchemyTokenBalances(wallet, chainId);
+        if (cancelled) return;
+        setAlchemyTokens(t);
+        setLastUpdated(new Date());
+      } catch {
+        // Alchemy down — keep the RPC watchlist, never blank the table.
+        if (!cancelled) setAlchemyTokens([]);
+      }
+    }
+
+    async function refreshAlchemyNfts(): Promise<void> {
+      if (!wallet || !connected || !getAlchemyKey() || !chainId) {
+        setAlchemyNfts(null);
+        setAlchemyNftsLoading(false);
+        return;
+      }
+      setAlchemyNftsLoading(true);
+      try {
+        const n = await fetchAlchemyNfts(wallet, chainId);
+        if (cancelled) return;
+        setAlchemyNfts(n);
+        setLastUpdated(new Date());
+      } catch {
+        // Alchemy down — fall back to the demo grid.
+        if (!cancelled) setAlchemyNfts(null);
+      } finally {
+        if (!cancelled) setAlchemyNftsLoading(false);
+      }
+    }
+
     every(refreshPrices, 30000);
     every(refreshGas, 15000);
     every(refreshYields, 300000);
     every(refreshApprovals, 60000);
     every(refreshBalances, 60000);
     every(refreshTokenBalances, 60000);
+    every(refreshAlchemyTokens, 60000);
+    every(refreshAlchemyNfts, 300000);
 
     return () => {
       cancelled = true;
       timers.forEach((t) => window.clearInterval(t));
     };
-  }, [wallet]);
+  }, [wallet, connected, chainId]);
 
   return {
     prices,
@@ -222,9 +297,13 @@ export function useLiveData(wallet: Address | null): LiveData {
     approvalsLive,
     nativeBalances,
     tokenBalances,
+    alchemyTokens,
+    alchemyNfts,
+    alchemyNftsLoading,
     lastUpdated,
     live: prices !== null || gasLive || yieldsLive || approvalsLive,
     pricesCached,
     gasCached,
+    refreshApprovals,
   };
 }

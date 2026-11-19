@@ -9,6 +9,8 @@ import type {
 } from '../types';
 import { chainInfo } from '../data';
 import { formatUnits, formatUsd, shortenAddress } from './format';
+import { cachedFetchJson } from './cache';
+import { getGasPriceWei } from './viemClients';
 import {
   CHAIN_ID_NUMBERS,
   SELECTORS,
@@ -25,9 +27,10 @@ import {
 } from './rpc';
 
 /**
- * Live data layer — CoinGecko, public RPCs, DefiLlama, Sourcify.
- * Every function throws on failure; callers fall back to seed data.
- * Nothing here broadcasts a transaction.
+ * Live data layer — DefiLlama coins/yields, viem gas, public RPCs,
+ * Sourcify, GoPlus. Every function throws on failure; callers fall
+ * back to seed data or the localStorage cache. Nothing here
+ * broadcasts a transaction.
  */
 
 const COINGECKO_IDS = [
@@ -57,10 +60,30 @@ export interface LivePrices {
   changes: Record<string, number>;
 }
 
-export async function fetchLivePrices(): Promise<LivePrices> {
+const LLAMA_COINS = [
+  'coingecko:bitcoin',
+  'coingecko:ethereum',
+  'coingecko:binancecoin',
+  'coingecko:solana',
+  'coingecko:tether',
+  'coingecko:matic-network',
+  'coingecko:arbitrum',
+] as const;
+
+const LLAMA_SYMBOL: Record<string, string> = {
+  'coingecko:bitcoin': 'BTC',
+  'coingecko:ethereum': 'ETH',
+  'coingecko:binancecoin': 'BNB',
+  'coingecko:solana': 'SOL',
+  'coingecko:tether': 'USDT',
+  'coingecko:matic-network': 'POL',
+  'coingecko:arbitrum': 'ARB',
+};
+
+async function fetchCoinGecko(): Promise<LivePrices> {
   const res = await fetch(
     `https://api.coingecko.com/api/v3/simple/price?ids=${COINGECKO_IDS.join(',')}&vs_currencies=usd&include_24hr_change=true`,
-    { signal: AbortSignal.timeout(10000) },
+    { signal: AbortSignal.timeout(8000) },
   );
   if (!res.ok) throw new Error(`CoinGecko HTTP ${res.status}`);
   const json = (await res.json()) as Record<
@@ -77,6 +100,40 @@ export async function fetchLivePrices(): Promise<LivePrices> {
   }
   if (Object.keys(out).length === 0) throw new Error('CoinGecko empty');
   return { prices: out, changes: chg };
+}
+
+/**
+ * Live token prices — primary source is the DefiLlama coins API
+ * (no key, 60-second localStorage cache so refreshes and tab
+ * switches do not spam it). The coins API serves no 24h change, so
+ * changes come from CoinGecko best-effort; when DefiLlama is down
+ * and nothing is cached, CoinGecko serves the whole response.
+ */
+export async function fetchLivePrices(): Promise<LivePrices> {
+  let prices: Record<string, number> = {};
+  try {
+    const json = await cachedFetchJson<{
+      coins: Record<string, { price?: unknown }>;
+    }>(
+      'web3hub-cache-llama-prices',
+      `https://coins.llama.fi/prices/current/${LLAMA_COINS.join(',')}`,
+      60_000,
+      10_000,
+    );
+    for (const id of LLAMA_COINS) {
+      const price = json.coins?.[id]?.price;
+      if (typeof price === 'number') prices[LLAMA_SYMBOL[id]] = price;
+    }
+  } catch {
+    // fall through to the CoinGecko fallback below
+  }
+  if (Object.keys(prices).length === 0) {
+    return fetchCoinGecko();
+  }
+  const changes = await fetchCoinGecko()
+    .then((g) => g.changes)
+    .catch(() => ({} as Record<string, number>));
+  return { prices, changes };
 }
 
 /* ------------------------------- Gas ------------------------------- */
@@ -100,8 +157,9 @@ const GAS_NATIVE_SYMBOL: Record<ChainId, string> = {
 };
 
 /**
- * Live gas per chain. Chains that fail keep their seed row
- * (the caller merges live over seed per chain).
+ * Live gas per chain via viem getGasPrice() over the public RPCs.
+ * Chains that fail keep their seed row (the caller merges live
+ * over seed per chain).
  */
 export async function fetchLiveGas(
   prices: Record<string, number>,
@@ -111,7 +169,7 @@ export async function fetchLiveGas(
 
   for (const chain of EVM_GAS_CHAINS) {
     try {
-      const gasPrice = await ethGasPrice(chain);
+      const gasPrice = await getGasPriceWei(chain);
       const nativePrice = prices[GAS_NATIVE_SYMBOL[chain]] ?? 0;
       const gwei = Number(gasPrice) / 1e9;
       const transferUsd =
@@ -201,17 +259,18 @@ function deriveRisk(apy: number): YieldPool['risk'] {
 
 /** Top live yield pools from DefiLlama (risk/category derived, labelled). */
 export async function fetchLiveYields(): Promise<YieldPool[]> {
-  const res = await fetch('https://yields.llama.fi/pools', {
-    signal: AbortSignal.timeout(15000),
-  });
-  if (!res.ok) throw new Error(`DefiLlama HTTP ${res.status}`);
-  const json = (await res.json()) as { data: LlamaPool[] };
+  const json = await cachedFetchJson<{ data: LlamaPool[] }>(
+    'web3hub-cache-llama-yields',
+    'https://yields.llama.fi/pools',
+    60_000,
+    15_000,
+  );
+  // Spec: top pools on Ethereum, Arbitrum and Base with TVL > $5M.
+  const YIELD_CHAINS = new Set(['Ethereum', 'Arbitrum', 'Base']);
   return json.data
     .filter(
       (p) =>
-        LLAMA_CHAIN_MAP[p.chain] !== undefined &&
-        p.apy > 0 &&
-        p.tvlUsd > 1_000_000,
+        YIELD_CHAINS.has(p.chain) && p.apy > 0 && p.tvlUsd > 5_000_000,
     )
     .sort((a, b) => b.apy - a.apy)
     .slice(0, 12)

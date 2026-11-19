@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Check, LogOut, Wallet, X } from 'lucide-react';
-import { useAccount, useBalance, useConnect } from 'wagmi';
+import { useAccount, useBalance, useConnect, useSwitchChain } from 'wagmi';
 import { chainInfo } from '../../data';
 import { formatUnits, isAddress, shortenAddress } from '../../lib/format';
 import { fetchNativeBalances } from '../../lib/live';
@@ -49,6 +49,11 @@ export default function WalletModal({
   const { data: connectedBalance } = useBalance({
     address: connectedAddress,
   });
+  const {
+    switchChain,
+    isPending: isSwitching,
+    error: switchError,
+  } = useSwitchChain();
 
   useEffect(() => {
     if (open) {
@@ -168,6 +173,45 @@ export default function WalletModal({
                 Hanya membaca — tidak ada signing, tidak ada transaksi dari
                 aplikasi ini.
               </p>
+              <div className="mt-3">
+                <p className="text-xs font-semibold text-muted">
+                  Ganti network
+                </p>
+                <div className="mt-1.5 flex flex-wrap gap-1.5">
+                  {(
+                    [
+                      { id: 1, label: 'Ethereum' },
+                      { id: 56, label: 'BSC' },
+                      { id: 8453, label: 'Base' },
+                      { id: 42161, label: 'Arbitrum' },
+                      { id: 137, label: 'Polygon' },
+                    ] as const
+                  ).map((c) => (
+                    <button
+                      key={c.id}
+                      onClick={() => switchChain({ chainId: c.id })}
+                      disabled={isSwitching || chainId === c.id}
+                      className={`rounded-lg px-2.5 py-1.5 text-xs font-semibold transition-colors disabled:cursor-default ${
+                        chainId === c.id
+                          ? 'bg-profit/20 text-profit'
+                          : 'border border-line bg-surface-2 text-slate-300 hover:text-white'
+                      }`}
+                    >
+                      {c.label}
+                    </button>
+                  ))}
+                </div>
+                {isSwitching && (
+                  <p className="mt-1.5 text-xs text-muted">
+                    Meminta wallet ganti network…
+                  </p>
+                )}
+                {switchError && (
+                  <p className="mt-1.5 text-xs text-loss">
+                    Gagal ganti network — coba dari wallet kamu langsung.
+                  </p>
+                )}
+              </div>
               <button
                 onClick={onDisconnect}
                 className="mt-3 flex items-center gap-2 rounded-xl border border-line bg-surface-2 px-4 py-2 text-sm font-semibold text-slate-300 transition-colors hover:text-white"

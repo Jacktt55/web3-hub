@@ -27,3 +27,33 @@ export function loadCache<T>(key: string, maxAgeMs: number): T | null {
     return null;
   }
 }
+
+/**
+ * 60-second localStorage cache wrapper for public JSON APIs
+ * (DefiLlama prices/yields): a page refresh or tab switch within the
+ * window reuses the stored response instead of hitting the API again.
+ * On fetch failure it serves any stored value (any age) as a last
+ * resort and only throws when there is nothing stored at all.
+ */
+export async function cachedFetchJson<T>(
+  key: string,
+  url: string,
+  ttlMs: number,
+  timeoutMs: number,
+): Promise<T> {
+  const fresh = loadCache<T>(key, ttlMs);
+  if (fresh !== null) return fresh;
+  try {
+    const res = await fetch(url, {
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const json = (await res.json()) as T;
+    saveCache(key, json);
+    return json;
+  } catch (err) {
+    const stale = loadCache<T>(key, Number.MAX_SAFE_INTEGER);
+    if (stale !== null) return stale;
+    throw err;
+  }
+}

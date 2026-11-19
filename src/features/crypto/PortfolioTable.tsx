@@ -111,7 +111,7 @@ export default function PortfolioTable({
           <h2 className="flex flex-wrap items-center gap-2 text-lg font-bold text-white">
             Token Portfolio
             {live ? (
-              <Badge variant="green">LIVE · CoinGecko</Badge>
+              <Badge variant="green">LIVE · DefiLlama</Badge>
             ) : (
               <Badge variant="blue">Menunggu harga live</Badge>
             )}

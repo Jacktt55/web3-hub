@@ -6,7 +6,13 @@ import {
   Wallet,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
-import { useAccount, useDisconnect } from 'wagmi';
+import {
+  useAccount,
+  useDisconnect,
+  useWaitForTransactionReceipt,
+  useWriteContract,
+} from 'wagmi';
+import { erc20Abi } from 'viem';
 import Sidebar from './components/layout/Sidebar';
 import Topbar from './components/layout/Topbar';
 import DetailDrawer from './components/layout/DetailDrawer';
@@ -40,11 +46,15 @@ import {
   shortenAddress,
 } from './lib/format';
 import { findWatch, prepareRevokeTx } from './lib/live';
+import { CHAIN_ID_NUMBERS } from './lib/rpc';
 import { chainIdToName } from './lib/wagmi';
+import type { TxSendState } from './components/layout/TxPreviewModal';
 import { generativeArt } from './lib/generativeArt';
 import { getViewMeta } from './lib/router';
 import type {
   Address,
+  AlchemyTokenBalance,
+  ChainId,
   DemoNft,
   MintPass,
   PreparedTx,
@@ -108,6 +118,17 @@ export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [toast, setToast] = useState<ToastData | null>(null);
   const [pendingTx, setPendingTx] = useState<PreparedTx | null>(null);
+  /** Revoke target (token contract + spender + chain) for the real send. */
+  const [revokeTarget, setRevokeTarget] = useState<{
+    tokenAddress: Address;
+    spenderAddress: Address;
+    chain: ChainId;
+    token: string;
+    spender: string;
+  } | null>(null);
+  const [revokeSend, setRevokeSend] = useState<TxSendState>({
+    status: 'idle',
+  });
   const [walletModalOpen, setWalletModalOpen] = useState(false);
   const [cryptoTab, setCryptoTab] = useState<'portfolio' | 'yields'>(
     'portfolio',
@@ -144,7 +165,10 @@ export default function App() {
   const activeWallet: Address | null =
     (wagmiAddress as Address | undefined) ?? wallet;
 
-  const live = useLiveData(activeWallet);
+  const live = useLiveData(activeWallet, {
+    connected: isConnected,
+    chainId: wagmiChainId,
+  });
   const lastConnectedRef = useRef<string | null>(null);
 
   useEffect(() => {
@@ -157,6 +181,53 @@ export default function App() {
     }
     if (!isConnected) lastConnectedRef.current = null;
   }, [isConnected, wagmiAddress, wagmiChainId]);
+
+  /**
+   * Real revoke send (wagmi/viem writeContract). The visitor already
+   * saw the full preview in TxPreviewModal; their wallet still asks
+   * for the final signature. Only runs when a real wallet is
+   * connected — demo mode stays preview-only.
+   */
+  const {
+    writeContract,
+    data: revokeHash,
+    isPending: isRevokePending,
+    error: revokeWriteError,
+  } = useWriteContract();
+  const { isLoading: isRevokeConfirming, isSuccess: isRevokeConfirmed } =
+    useWaitForTransactionReceipt({ hash: revokeHash });
+
+  useEffect(() => {
+    if (isRevokePending) {
+      setRevokeSend({ status: 'pending' });
+    } else if (isRevokeConfirming && revokeHash) {
+      setRevokeSend({ status: 'confirming', hash: revokeHash });
+    }
+  }, [isRevokePending, isRevokeConfirming, revokeHash]);
+
+  useEffect(() => {
+    if (isRevokeConfirmed && revokeHash) {
+      setRevokeSend({ status: 'success', hash: revokeHash });
+      showToast(
+        `Revoke terkirim: ${revokeHash.slice(0, 10)}…${revokeHash.slice(-8)}.`,
+        'success',
+      );
+      live.refreshApprovals();
+      window.setTimeout(() => setPendingTx(null), 2500);
+    }
+  }, [isRevokeConfirmed, revokeHash]);
+
+  useEffect(() => {
+    if (revokeWriteError) {
+      const msg =
+        revokeWriteError.message.includes('User rejected') ||
+        revokeWriteError.message.includes('denied')
+          ? 'Transaksi dibatalkan di wallet.'
+          : 'Gagal mengirim transaksi — periksa chain dan saldo gas.';
+      setRevokeSend({ status: 'error', error: msg });
+      showToast(msg);
+    }
+  }, [revokeWriteError]);
 
   useEffect(() => {
     if (!toast) return;
@@ -217,11 +288,50 @@ export default function App() {
         contract: t.tokenAddress as Address,
       });
     }
+    // Real Alchemy balances (connected wallet + key only): overlay the
+    // watchlist rows by contract, keep only tokens with a known price.
+    const seenContracts = new Set(
+      rows
+        .map((r) => r.contract?.toLowerCase())
+        .filter((c): c is string => Boolean(c)),
+    );
+    const alchemyRows = (live.alchemyTokens ?? [])
+      .map((t) => {
+        const priceUsd = live.prices?.[t.symbol.toUpperCase()];
+        return { t, priceUsd };
+      })
+      .filter(
+        (x): x is { t: AlchemyTokenBalance; priceUsd: number } =>
+          x.priceUsd !== undefined &&
+          !seenContracts.has(x.t.contractAddress.toLowerCase()),
+      )
+      .map(({ t, priceUsd }) => ({
+        id: `alchemy-${t.contractAddress.toLowerCase()}`,
+        symbol: t.symbol,
+        name: t.name,
+        chain: (t.chainId === 1
+          ? 'ethereum'
+          : t.chainId === 8453
+            ? 'base'
+            : t.chainId === 42161
+              ? 'arbitrum'
+              : t.chainId === 137
+                ? 'polygon'
+                : 'bsc') as ChainId,
+        balance: Number(formatUnits(t.balance, t.decimals)),
+        priceUsd,
+        change24h: live.changes?.[t.symbol.toUpperCase()],
+        contract: t.contractAddress as Address,
+      }))
+      .sort((a, b) => b.balance * (b.priceUsd ?? 0) - a.balance * (a.priceUsd ?? 0))
+      .slice(0, 12);
+    rows.push(...alchemyRows);
     return rows;
   }, [
     activeWallet,
     live.nativeBalances,
     live.tokenBalances,
+    live.alchemyTokens,
     live.prices,
     live.changes,
   ]);
@@ -319,6 +429,14 @@ export default function App() {
       const nativePrice =
         live.prices?.[watch.chain === 'bsc' ? 'BNB' : 'ETH'] ?? 0;
       const tx = await prepareRevokeTx(watch, nativePrice, activeWallet);
+      setRevokeTarget({
+        tokenAddress: watch.tokenAddress as Address,
+        spenderAddress: watch.spenderAddress as Address,
+        chain: watch.chain,
+        token: approval.token,
+        spender: approval.spender,
+      });
+      setRevokeSend({ status: 'idle' });
       setPendingTx(tx);
       showToast(
         `Preview revoke ${approval.token} → ${approval.spender} disiapkan — cek modal untuk detail.`,
@@ -326,6 +444,26 @@ export default function App() {
     } catch {
       showToast('Gagal menyiapkan preview revoke — RPC tidak menjawab.');
     }
+  }
+
+  /** Sends the real approve(spender, 0) from the connected wallet. */
+  function handleSendRevoke(): void {
+    if (!revokeTarget || !isConnected) return;
+    const neededChain = CHAIN_ID_NUMBERS[revokeTarget.chain];
+    if (wagmiChainId !== neededChain) {
+      showToast(
+        `Ganti network wallet ke ${chainInfo(revokeTarget.chain).name} dulu (saat ini ${chainIdToName(wagmiChainId) ?? 'unknown'}).`,
+      );
+      return;
+    }
+    setRevokeSend({ status: 'pending' });
+    writeContract({
+      address: revokeTarget.tokenAddress,
+      abi: erc20Abi,
+      functionName: 'approve',
+      args: [revokeTarget.spenderAddress, 0n],
+      chainId: neededChain,
+    });
   }
 
   function handleMintPreview(pass: MintPass): void {
@@ -478,9 +616,9 @@ export default function App() {
                     </h2>
                     {live.prices ? (
                       live.pricesCached ? (
-                        <Badge variant="amber">Cache · CoinGecko</Badge>
+                        <Badge variant="amber">Cache · DefiLlama</Badge>
                       ) : (
-                        <Badge variant="green">CoinGecko</Badge>
+                        <Badge variant="green">DefiLlama</Badge>
                       )
                     ) : (
                       <Badge variant="blue">Menunggu…</Badge>
@@ -529,7 +667,7 @@ export default function App() {
                     </ul>
                   ) : (
                     <p className="py-8 text-center text-sm text-muted">
-                      Menunggu data CoinGecko…
+                      Menunggu data DefiLlama…
                     </p>
                   )}
                 </section>
@@ -661,16 +799,61 @@ export default function App() {
                       <h2 className="text-lg font-bold text-white">
                         My Collection
                       </h2>
-                      <Badge variant="blue">
-                        Koleksi contoh (demo) — bukan NFT asli
-                      </Badge>
+                      {live.alchemyNfts !== null ? (
+                        <Badge variant="green">
+                          NFT asli · Alchemy (
+                          {chainIdToName(wagmiChainId) ?? 'Ethereum'})
+                        </Badge>
+                      ) : (
+                        <Badge variant="blue">
+                          Koleksi contoh (demo) — bukan NFT asli
+                        </Badge>
+                      )}
                     </div>
-                    <NftGrid items={DEMO_NFTS} onSelect={openNftDrawer} />
+                    {live.alchemyNftsLoading ? (
+                      <div className="space-y-2.5">
+                        <SkeletonRow />
+                        <SkeletonRow />
+                        <p className="pt-1 text-center text-xs text-muted">
+                          Memuat NFT asli dari Alchemy…
+                        </p>
+                      </div>
+                    ) : live.alchemyNfts !== null ? (
+                      live.alchemyNfts.length === 0 ? (
+                        <div className="rounded-xl border border-line bg-surface p-6 text-center">
+                          <p className="text-sm font-semibold text-white">
+                            Tidak ada NFT di wallet ini (
+                            {chainIdToName(wagmiChainId) ?? 'chain ini'}).
+                          </p>
+                          <p className="mt-1 text-xs text-muted">
+                            NFT di chain lain tidak terbaca dari chain yang
+                            aktif — ganti network di Connect Wallet.
+                          </p>
+                        </div>
+                      ) : (
+                        <NftGrid
+                          items={live.alchemyNfts.map((n) => ({
+                            id: `alchemy-${n.contractAddress.toLowerCase()}-${n.tokenId}`,
+                            title: n.title,
+                            collection: n.collection,
+                            floorEth: null,
+                            tokenId: n.tokenId,
+                            rarityRank: 0,
+                            rarityTotal: 0,
+                            traits: n.traits,
+                            source: 'alchemy' as const,
+                            artwork: n.imageUrl ?? undefined,
+                          }))}
+                          onSelect={openNftDrawer}
+                        />
+                      )
+                    ) : (
+                      <NftGrid items={DEMO_NFTS} onSelect={openNftDrawer} />
+                    )}
                     <p className="mt-3 text-xs text-muted">
-                      Koleksi di atas adalah contoh dengan artwork SVG
-                      generatif — klik kartu untuk traits, rarity rank, dan
-                      token ID. NFT asli kamu bisa dicek lewat "Cek NFT" di
-                      bawah.
+                      {live.alchemyNfts !== null
+                        ? 'NFT asli wallet yang terhubung, dibaca lewat Alchemy (chain aktif). Klik kartu untuk traits dan token ID.'
+                        : 'Koleksi di atas adalah contoh dengan artwork SVG generatif — klik kartu untuk traits, rarity rank, dan token ID. Hubungkan wallet untuk melihat NFT asli kamu, atau cek lewat "Cek NFT" di bawah.'}
                     </p>
                   </section>
                   <NftLookup />
@@ -809,7 +992,14 @@ export default function App() {
 
       <TxPreviewModal
         tx={pendingTx}
-        onClose={() => setPendingTx(null)}
+        canSend={isConnected}
+        sendState={revokeSend}
+        onSend={handleSendRevoke}
+        onClose={() => {
+          setPendingTx(null);
+          setRevokeTarget(null);
+          setRevokeSend({ status: 'idle' });
+        }}
         onCopied={() =>
           showToast(
             'Ringkasan disalin — eksekusi dari wallet kamu sendiri.',
@@ -827,7 +1017,9 @@ export default function App() {
             : drawer?.kind === 'pool'
               ? `${drawer.pool.protocol} — ${drawer.pool.pair}`
               : drawer?.kind === 'nft'
-                ? `${drawer.nft.title} (Demo)`
+                ? drawer.nft.source === 'alchemy'
+                  ? `${drawer.nft.title} (NFT asli)`
+                  : `${drawer.nft.title} (Demo)`
                 : 'Detail'
         }
       >
@@ -1031,14 +1223,15 @@ export default function App() {
           <div className="space-y-4 text-sm">
             <div className="aspect-square w-full overflow-hidden rounded-xl bg-surface-2">
               <img
-                src={generativeArt(drawer.nft.id)}
+                src={drawer.nft.artwork ?? generativeArt(drawer.nft.id)}
                 alt={drawer.nft.title}
                 className="aspect-square h-full w-full object-cover"
               />
             </div>
             <p className="leading-relaxed text-slate-300">
-              Item demo — artwork SVG generatif, bukan NFT asli. NFT asli
-              bisa dicek lewat "Cek NFT" di tab My Collection.
+              {drawer.nft.source === 'alchemy'
+                ? 'NFT asli dari wallet yang terhubung, dibaca lewat Alchemy. Floor price tidak tersedia dari API ini.'
+                : 'Item demo — artwork SVG generatif, bukan NFT asli. NFT asli bisa dicek lewat "Cek NFT" di tab My Collection.'}
             </p>
             <dl className="space-y-2.5">
               <div className="flex justify-between gap-3">
@@ -1053,16 +1246,20 @@ export default function App() {
                   #{drawer.nft.tokenId}
                 </dd>
               </div>
-              <div className="flex justify-between gap-3">
-                <dt className="text-muted">Rarity Rank</dt>
-                <dd className="font-mono tabular-nums text-white">
-                  #{drawer.nft.rarityRank} / {drawer.nft.rarityTotal}
-                </dd>
-              </div>
+              {drawer.nft.rarityTotal > 0 && (
+                <div className="flex justify-between gap-3">
+                  <dt className="text-muted">Rarity Rank</dt>
+                  <dd className="font-mono tabular-nums text-white">
+                    #{drawer.nft.rarityRank} / {drawer.nft.rarityTotal}
+                  </dd>
+                </div>
+              )}
               <div className="flex justify-between gap-3">
                 <dt className="text-muted">Floor Price</dt>
                 <dd className="font-mono tabular-nums text-white">
-                  {drawer.nft.floorEth} ETH
+                  {drawer.nft.floorEth === null
+                    ? '—'
+                    : `${drawer.nft.floorEth} ETH`}
                 </dd>
               </div>
               <div>

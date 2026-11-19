@@ -89,12 +89,40 @@ export interface DemoNft {
   id: string;
   title: string;
   collection: string;
-  /** Floor price in ETH (demo figure). */
-  floorEth: number;
+  /** Floor price in ETH (demo figure); null when unknown (real NFTs). */
+  floorEth: number | null;
   tokenId: string;
   /** Rarity rank within the demo collection, e.g. 12 of 1000. */
   rarityRank: number;
   rarityTotal: number;
+  traits: { trait: string; value: string }[];
+  /** 'demo' = generative example, 'alchemy' = real on-chain NFT. */
+  source?: 'demo' | 'alchemy';
+  /** Real artwork URL (Alchemy); when absent, generative SVG is used. */
+  artwork?: string;
+}
+
+/* ------------------------- Alchemy (real data) --------------------- */
+
+/** One ERC-20 balance read from Alchemy (connected wallet only). */
+export interface AlchemyTokenBalance {
+  contractAddress: string;
+  symbol: string;
+  name: string;
+  decimals: number;
+  balance: bigint;
+  /** wagmi chain id the balance was read on. */
+  chainId: number;
+}
+
+/** One NFT owned by the connected wallet, read from Alchemy. */
+export interface AlchemyNft {
+  contractAddress: string;
+  tokenId: string;
+  title: string;
+  collection: string;
+  /** Cached image URL, or null when Alchemy has none. */
+  imageUrl: string | null;
   traits: { trait: string; value: string }[];
 }
 
