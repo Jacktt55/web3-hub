@@ -69,20 +69,23 @@ src/
 - Layout shell + 5 views wired to real (seed) data; `npm run build`
   compiles with zero errors.
 
-## Phase 2 — next
+## Phase 2 — done (2026-11-19)
 
-- Live data layer: CoinGecko prices (30s), public-RPC `eth_gasPrice`
-  (15s), Blockchair whale feed, DefiLlama yields.
-- Real wallet reads: on-chain holdings, NFT media, live approvals
-  (revoke = real on-chain tx with preview + confirmation).
-- Contract scanner: live source verification + bytecode analysis.
-- Mint pass flow: no-code mint preview → on-chain execution.
+**Live di https://jacktt55.github.io/web3-hub/** — repo `Jacktt55/web3-hub`, commit `f1c4157`, branch `gh-pages` (base `/web3-hub/`).
 
-## Deploy (GitHub Pages)
+- `src/lib/rpc.ts`: JSON-RPC client tanpa dependensi (rotasi endpoint per chain, eth_call/getBalance/getCode/gasPrice/estimateGas, encode/decode ABI minimal, selector hardcode).
+- `src/lib/live.ts`: CoinGecko harga + perubahan 24j; gas `eth_gasPrice` (transfer 21k / swap 150k gas → USD); DefiLlama yields (top 12, risiko/kategori diturunkan dari APY, dilabeli); `resolveNftImage` via tokenURI on-chain → metadata → image (fallback placeholder); `fetchLiveApprovals` — allowance on-chain untuk watchlist 4 token × spender (kosong = wallet benar-benar bersih); `scanContractLive` — eth_getCode + Sourcify v2 (v1 hanya verifikasi & bytecode, bukan simulasi honeypot); `fetchAugentStatus` — phase() + claimableOf(); `prepareRevokeTx` / `prepareAugentClaimTx` / `preparePresschainPreview` — **preview saja, tidak ada yang sign/broadcast**.
+- `src/hooks/useLiveData.ts`: polling harga 30 dtk · gas 15 dtk · yield 5 mnt · approval 60 dtk · AUGENT 60 dtk · artwork NFT sekali saat mount. Gagal fetch = nilai lama/seed dipertahankan, app tidak pernah blank.
+- `TxPreviewModal`: chain, from, to, fungsi, value, estimasi gas, fee, calldata + tombol "Salin ringkasan" — eksekusi tetap di chat dengan Guts setelah konfirmasi eksplisit user (sesuai safety rails).
+- **Presschain TIDAK dikerjakan dulu (instruksi user 16:39 WIB)** — tidak ada live read Presschain di app; kartu edisi 9 hanya preview statis (jawaban + gas diverifikasi di chat). Cek edisi 9 terjadwal besok 07:05 WIB tetap jalan.
+- Verifikasi: build 0 error; render lokal di path `/web3-hub/` terverifikasi headless — status LIVE muncul begitu satu sumber live menjawab; di sandbox, CoinGecko/DefiLlama/gas RPC terblokir sehingga tampil snapshot, tapi approval RPC lolos dan status jadi LIVE. URL live dicek via curl: HTTP 200, judul + asset benar, JS live berisi string CoinGecko/DefiLlama/eth_gasPrice/Sourcify. Screenshot URL live dari sandbox tidak bisa (proxy blokir headless shell), render lokal adalah buktinya.
+
+## Deploy (GitHub Pages) — done
 
 ```bash
 npm run build
-# push dist/ to the gh-pages branch, or use an Actions workflow.
-# If the site lives under a subpath (e.g. /web3-hub/), set
-# `base: '/web3-hub/'` in vite.config.ts before building.
+npx -y gh-pages -d dist   # push dist/ ke branch gh-pages
+gh api -X POST repos/Jacktt55/web3-hub/pages -f source[branch]=gh-pages -f source[path]=/
+# base sudah '/web3-hub/' di vite.config.ts
+# Live: https://jacktt55.github.io/web3-hub/
 ```
