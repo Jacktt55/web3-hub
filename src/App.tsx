@@ -85,7 +85,7 @@ function KpiCard({ label, value, sub, icon: Icon }: KpiCardProps) {
         <Icon className="h-4 w-4 text-accent-2" />
         {label}
       </p>
-      <p className="mt-2.5 truncate font-mono text-2xl font-bold tabular-nums text-white">
+      <p className="mt-2.5 truncate font-mono text-base font-bold tabular-nums text-white sm:text-xl xl:text-2xl">
         {value}
       </p>
       <p className="mt-1 truncate text-xs text-muted">{sub}</p>
@@ -265,9 +265,10 @@ export default function App() {
         walletAddress={wallet}
         open={sidebarOpen}
         onClose={() => setSidebarOpen(false)}
+        onSecondary={(label) => showToast(`${label} — segera hadir.`)}
       />
 
-      <div className="lg:pl-64">
+      <div className="lg:pl-60">
         <Topbar
           view={view}
           query={query}
@@ -435,7 +436,7 @@ export default function App() {
             <div className="grid items-start gap-5 xl:grid-cols-2">
               <ContractScanner audits={CONTRACT_AUDITS} />
               <ApprovalList
-                approvals={approvals}
+                approvals={live.approvals}
                 approvalsLive={live.approvalsLive}
                 onRevokeRequest={(a) => void handleRevokeRequest(a)}
               />

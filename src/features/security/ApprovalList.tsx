@@ -3,6 +3,7 @@ import { formatDateTime } from '../../lib/format';
 import type { TokenApproval } from '../../types';
 import Badge from '../../components/ui/Badge';
 import CopyAddressButton from '../../components/ui/CopyAddressButton';
+import SkeletonRow from '../../components/ui/SkeletonRow';
 
 const RISK_BADGE = {
   low: 'green',
@@ -12,8 +13,8 @@ const RISK_BADGE = {
 } as const;
 
 interface ApprovalListProps {
-  /** Live allowances when the hook has answered, else the seed list. */
-  approvals: readonly TokenApproval[];
+  /** Live allowances; null while the first on-chain read is pending. */
+  approvals: readonly TokenApproval[] | null;
   /** True once a live on-chain read has completed (even if empty). */
   approvalsLive: boolean;
   /** Opens the revoke preview for this approval (preview only). */
@@ -40,8 +41,12 @@ export default function ApprovalList({
           ) : (
             <Badge variant="blue">Seed</Badge>
           )}
-          <Badge variant={approvals.length === 0 ? 'green' : 'amber'}>
-            {approvals.length} aktif
+          <Badge
+            variant={
+              approvals === null || approvals.length > 0 ? 'amber' : 'green'
+            }
+          >
+            {approvals === null ? '…' : `${approvals.length} aktif`}
           </Badge>
         </span>
       </div>
@@ -51,7 +56,16 @@ export default function ApprovalList({
         permukaan serangan wallet.
       </p>
 
-      {approvals.length === 0 ? (
+      {approvals === null ? (
+        <div className="space-y-2.5">
+          <SkeletonRow />
+          <SkeletonRow />
+          <SkeletonRow />
+          <p className="pt-1 text-center text-xs text-muted">
+            Membaca approval on-chain…
+          </p>
+        </div>
+      ) : approvals.length === 0 ? (
         <div className="rounded-xl border border-line bg-bg p-6 text-center">
           <p className="text-sm font-semibold text-profit">
             Tidak ada approval aktif — wallet bersih.

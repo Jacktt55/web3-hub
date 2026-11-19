@@ -1,5 +1,5 @@
 import { Menu, RefreshCw, Search, Wallet } from 'lucide-react';
-import { GAS_FEES, chainInfo } from '../../data';
+import { GAS_FEES } from '../../data';
 import { shortenAddress } from '../../lib/format';
 import { getViewMeta } from '../../lib/router';
 import type { Address, GasFee, View } from '../../types';
@@ -29,7 +29,8 @@ export default function Topbar({
 }: TopbarProps) {
   const meta = getViewMeta(view);
   const ethGas = gasFees.find((g) => g.chain === 'ethereum');
-  const bscGas = gasFees.find((g) => g.chain === 'bsc');
+  const baseGas = gasFees.find((g) => g.chain === 'base');
+  const arbGas = gasFees.find((g) => g.chain === 'arbitrum');
 
   return (
     <header className="sticky top-0 z-30 border-b border-line bg-bg/90 backdrop-blur-xl">
@@ -57,18 +58,27 @@ export default function Topbar({
         <div className="hidden items-center gap-3 rounded-xl border border-line bg-surface px-3.5 py-2 font-mono text-xs xl:flex">
           {ethGas && (
             <span>
-              {chainInfo('ethereum').nativeSymbol}{' '}
+              ETH{' '}
               <b className="font-semibold text-ink">
                 {ethGas.gasPriceGwei} gwei
               </b>
             </span>
           )}
           <span className="text-line">|</span>
-          {bscGas && (
+          {baseGas && (
             <span>
-              {chainInfo('bsc').nativeSymbol}{' '}
+              Base{' '}
               <b className="font-semibold text-ink">
-                {bscGas.gasPriceGwei} gwei
+                {baseGas.gasPriceGwei} gwei
+              </b>
+            </span>
+          )}
+          <span className="text-line">|</span>
+          {arbGas && (
+            <span>
+              Arbitrum{' '}
+              <b className="font-semibold text-ink">
+                {arbGas.gasPriceGwei} gwei
               </b>
             </span>
           )}
@@ -84,7 +94,7 @@ export default function Topbar({
 
         <button
           onClick={onWalletClick}
-          title="Ganti wallet — alamat hanya dipakai untuk membaca data publik on-chain"
+          title="Connect Wallet — ganti alamat wallet (hanya membaca data publik on-chain)"
           className="flex items-center gap-1.5 rounded-xl border border-line bg-surface py-1.5 pl-3 pr-2.5 font-mono text-xs text-slate-200 transition-colors hover:border-accent/50"
         >
           <span className="h-2 w-2 shrink-0 rounded-full bg-profit" />

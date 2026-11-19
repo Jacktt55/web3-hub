@@ -1,8 +1,10 @@
 import {
   Activity,
+  BookOpen,
   Coins,
   Image as ImageIcon,
   LayoutDashboard,
+  Settings,
   ShieldCheck,
   X,
 } from 'lucide-react';
@@ -26,6 +28,8 @@ interface SidebarProps {
   /** Mobile drawer state; on desktop the sidebar is always visible. */
   open: boolean;
   onClose: () => void;
+  /** Secondary footer links (Docs / Settings) — placeholder for now. */
+  onSecondary: (label: string) => void;
 }
 
 export default function Sidebar({
@@ -34,6 +38,7 @@ export default function Sidebar({
   walletAddress,
   open,
   onClose,
+  onSecondary,
 }: SidebarProps) {
   return (
     <>
@@ -45,7 +50,7 @@ export default function Sidebar({
         />
       )}
       <aside
-        className={`fixed inset-y-0 left-0 z-50 flex w-64 flex-col border-r border-line bg-surface transition-transform duration-200 lg:translate-x-0 ${
+        className={`fixed inset-y-0 left-0 z-50 flex w-60 flex-col border-r border-line bg-surface transition-transform duration-200 lg:translate-x-0 ${
           open ? 'translate-x-0' : '-translate-x-full'
         }`}
       >
@@ -117,6 +122,23 @@ export default function Sidebar({
         </nav>
 
         <div className="flex-none border-t border-line p-4">
+          <div className="mb-3 flex items-center gap-1 px-1">
+            <button
+              onClick={() => onSecondary('Docs')}
+              className="flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-xs font-medium text-muted transition-colors hover:bg-surface-2 hover:text-ink"
+            >
+              <BookOpen className="h-3.5 w-3.5" />
+              Docs
+            </button>
+            <span className="text-line">·</span>
+            <button
+              onClick={() => onSecondary('Settings')}
+              className="flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-xs font-medium text-muted transition-colors hover:bg-surface-2 hover:text-ink"
+            >
+              <Settings className="h-3.5 w-3.5" />
+              Settings
+            </button>
+          </div>
           <div className="rounded-xl border border-line bg-bg p-3.5">
             <div className="mb-1.5 flex items-center justify-between text-xs font-medium text-slate-300">
               <span className="flex items-center gap-2">

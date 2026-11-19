@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { GAS_FEES, NFTS, YIELD_POOLS } from '../data';
+import { GAS_FEES, NFTS, TOKEN_APPROVALS, YIELD_POOLS } from '../data';
 import type { Address, GasFee, TokenApproval, YieldPool } from '../types';
 import {
   fetchAugentStatus,
@@ -119,7 +119,8 @@ export function useLiveData(wallet: Address): LiveData {
         setApprovalsLive(true);
         setLastUpdated(new Date());
       } catch {
-        // keep seed fallback in the UI
+        // RPC unreachable — fall back to the seed list, labelled Seed.
+        if (!cancelled) setApprovals([...TOKEN_APPROVALS]);
       }
     }
 

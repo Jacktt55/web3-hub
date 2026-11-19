@@ -6,6 +6,7 @@ import { scanContractLive } from '../../lib/live';
 import type { LiveScanResult } from '../../lib/live';
 import type { ChainId, ContractAudit } from '../../types';
 import Badge from '../../components/ui/Badge';
+import SkeletonCard from '../../components/ui/SkeletonCard';
 
 const RISK_BADGE = {
   low: 'green',
@@ -118,6 +119,12 @@ export default function ContractScanner({
         </button>
       </div>
       {error !== '' && <p className="mt-2 text-sm text-loss">{error}</p>}
+
+      {scanning && (
+        <div className="mt-5">
+          <SkeletonCard lines={3} />
+        </div>
+      )}
 
       {outcome?.kind === 'local' && (
         <div className="mt-5 rounded-xl border border-line bg-bg p-4">
