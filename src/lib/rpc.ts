@@ -171,7 +171,7 @@ export function decodeAbiString(hex: string): string {
   return new TextDecoder().decode(bytes);
 }
 
-/** Well-known function selectors (verified against Sourcify ABIs). */
+/** Well-known function selectors (verified against public ABIs). */
 export const SELECTORS = {
   balanceOf: '0x70a08231',
   allowance: '0xdd62ed3e',
@@ -180,9 +180,4 @@ export const SELECTORS = {
   decimals: '0x313ce567',
   name: '0x06fdde03',
   symbol: '0x95d89b41',
-  augentPhase: '0xb1c9fe6e',
-  augentClaimableOf: '0x8903ab9d',
-  augentTokensClaimed: '0x624601b6',
-  augentClaim: '0x4e71d92d',
-  presschainPrintFree: '0xc9d1a0f6',
 } as const;

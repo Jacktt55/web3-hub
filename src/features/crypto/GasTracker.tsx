@@ -7,11 +7,21 @@ interface GasTrackerProps {
   fees: readonly GasFee[];
   /** True when at least one row comes from a live RPC read. */
   live?: boolean;
+  /** Topbar search query — filters by chain name. */
+  query?: string;
 }
 
 /** Per-chain gas comparison bars with the cheapest transfer highlighted. */
-export default function GasTracker({ fees, live = false }: GasTrackerProps) {
-  const cheapest = cheapestGas(fees);
+export default function GasTracker({
+  fees,
+  live = false,
+  query = '',
+}: GasTrackerProps) {
+  const q = query.trim().toLowerCase();
+  const shown = fees.filter(
+    (f) => q === '' || chainInfo(f.chain).name.toLowerCase().includes(q),
+  );
+  const cheapest = cheapestGas(shown.length > 0 ? shown : fees);
   const maxCost = Math.max(...fees.map((f) => f.transferUsd), 0.0001);
 
   return (
@@ -28,7 +38,7 @@ export default function GasTracker({ fees, live = false }: GasTrackerProps) {
         Biaya transfer native per chain — bar lebih pendek = lebih murah.
       </p>
       <div>
-        {fees.map((f) => {
+        {shown.map((f) => {
           const chain = chainInfo(f.chain);
           const isCheapest = cheapest?.chain === f.chain;
           const width = Math.max((f.transferUsd / maxCost) * 100, 1.5);
@@ -76,6 +86,11 @@ export default function GasTracker({ fees, live = false }: GasTrackerProps) {
             </div>
           );
         })}
+        {shown.length === 0 && (
+          <p className="py-8 text-center text-sm text-muted">
+            Tidak ada chain yang cocok dengan “{query}”.
+          </p>
+        )}
       </div>
       <p className="mt-3 text-xs text-muted">
         {live

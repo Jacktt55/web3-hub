@@ -6,12 +6,13 @@ import {
   LayoutDashboard,
   Settings,
   ShieldCheck,
+  Wallet,
   X,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { VIEWS } from '../../lib/router';
 import { shortenAddress } from '../../lib/format';
-import type { View } from '../../types';
+import type { Address, View } from '../../types';
 
 const VIEW_ICONS: Record<View, LucideIcon> = {
   overview: LayoutDashboard,
@@ -24,12 +25,14 @@ const VIEW_ICONS: Record<View, LucideIcon> = {
 interface SidebarProps {
   view: View;
   onNavigate: (view: View) => void;
-  walletAddress: string;
+  /** Active wallet address, null when no wallet is entered yet. */
+  walletAddress: Address | null;
   /** Mobile drawer state; on desktop the sidebar is always visible. */
   open: boolean;
   onClose: () => void;
   /** Secondary footer links (Docs / Settings) — placeholder for now. */
   onSecondary: (label: string) => void;
+  onWalletClick: () => void;
 }
 
 export default function Sidebar({
@@ -39,6 +42,7 @@ export default function Sidebar({
   open,
   onClose,
   onSecondary,
+  onWalletClick,
 }: SidebarProps) {
   return (
     <>
@@ -140,16 +144,36 @@ export default function Sidebar({
             </button>
           </div>
           <div className="rounded-xl border border-line bg-bg p-3.5">
-            <div className="mb-1.5 flex items-center justify-between text-xs font-medium text-slate-300">
-              <span className="flex items-center gap-2">
-                <span className="h-2 w-2 animate-pulse rounded-full bg-profit" />
-                Multi-Chain Aktif
-              </span>
-              <span className="text-[11px] text-muted">7 Jaringan</span>
-            </div>
-            <p className="font-mono text-[11px] leading-relaxed text-muted">
-              {shortenAddress(walletAddress, 6)}
-            </p>
+            {walletAddress ? (
+              <>
+                <div className="mb-1.5 flex items-center justify-between text-xs font-medium text-slate-300">
+                  <span className="flex items-center gap-2">
+                    <span className="h-2 w-2 animate-pulse rounded-full bg-profit" />
+                    Multi-Chain Aktif
+                  </span>
+                  <span className="text-[11px] text-muted">7 Jaringan</span>
+                </div>
+                <p className="font-mono text-[11px] leading-relaxed text-muted">
+                  {shortenAddress(walletAddress, 6)}
+                </p>
+              </>
+            ) : (
+              <>
+                <p className="text-xs font-medium text-slate-300">
+                  Belum ada wallet terhubung
+                </p>
+                <p className="mt-0.5 text-[11px] leading-relaxed text-muted">
+                  Masukkan alamat wallet kamu untuk melihat saldo & approval.
+                </p>
+                <button
+                  onClick={onWalletClick}
+                  className="mt-2.5 flex w-full items-center justify-center gap-2 rounded-xl bg-accent px-3 py-2 text-xs font-semibold text-white transition-colors hover:bg-blue-600"
+                >
+                  <Wallet className="h-3.5 w-3.5" />
+                  Connect Wallet
+                </button>
+              </>
+            )}
           </div>
         </div>
       </aside>

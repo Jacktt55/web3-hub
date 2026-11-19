@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Check, RotateCcw, Wallet, X } from 'lucide-react';
+import { Check, LogOut, Wallet, X } from 'lucide-react';
 import { chainInfo } from '../../data';
 import { formatUnits, isAddress, shortenAddress } from '../../lib/format';
 import { fetchNativeBalances } from '../../lib/live';
@@ -8,10 +8,11 @@ import CopyAddressButton from '../ui/CopyAddressButton';
 
 interface WalletModalProps {
   open: boolean;
-  current: Address;
-  defaultAddress: Address;
+  /** Active wallet, null when none is entered yet. */
+  current: Address | null;
   onClose: () => void;
   onApply: (address: Address) => void;
+  onDisconnect: () => void;
 }
 
 interface NativeBalance {
@@ -20,24 +21,26 @@ interface NativeBalance {
 }
 
 /**
- * Change the active wallet address.
+ * Enter the wallet address to inspect.
  * The address is only used to READ public on-chain data — there is no
  * wallet connection, no signing, and nothing here can move funds.
+ * Every visitor uses their own address; nothing is shared between
+ * visitors.
  */
 export default function WalletModal({
   open,
   current,
-  defaultAddress,
   onClose,
   onApply,
+  onDisconnect,
 }: WalletModalProps) {
-  const [input, setInput] = useState<string>(current);
+  const [input, setInput] = useState<string>(current ?? '');
   const [balances, setBalances] = useState<NativeBalance[] | null>(null);
   const [checking, setChecking] = useState(false);
 
   useEffect(() => {
     if (open) {
-      setInput(current);
+      setInput(current ?? '');
       setBalances(null);
     }
   }, [open, current]);
@@ -65,7 +68,9 @@ export default function WalletModal({
   if (!open) return null;
 
   const changed =
-    valid && input.trim().toLowerCase() !== current.toLowerCase();
+    valid &&
+    (current === null ||
+      input.trim().toLowerCase() !== current.toLowerCase());
 
   return (
     <div
@@ -83,7 +88,7 @@ export default function WalletModal({
         <div className="flex items-center justify-between border-b border-line px-5 py-4">
           <h2 className="flex items-center gap-2 text-base font-bold text-white">
             <Wallet className="h-5 w-5 text-accent-2" />
-            Ganti Wallet
+            Connect Wallet
           </h2>
           <button
             onClick={onClose}
@@ -98,7 +103,7 @@ export default function WalletModal({
           <p className="text-sm text-muted">
             Alamat ini hanya dipakai untuk{' '}
             <b className="text-white">membaca data publik on-chain</b> —
-            approval, saldo native, dan status AUGENT. Tidak ada koneksi
+            approval, saldo native, dan preview transaksi. Tidak ada koneksi
             wallet, tidak ada tanda tangan, dan tidak ada yang bisa
             menggerakkan dana.
           </p>
@@ -126,14 +131,16 @@ export default function WalletModal({
             )}
           </div>
 
-          <div className="rounded-xl border border-line bg-bg p-3.5">
-            <p className="text-xs font-semibold text-muted">
-              Wallet aktif saat ini
-            </p>
-            <div className="mt-1">
-              <CopyAddressButton address={current} />
+          {current && (
+            <div className="rounded-xl border border-line bg-bg p-3.5">
+              <p className="text-xs font-semibold text-muted">
+                Wallet aktif saat ini
+              </p>
+              <div className="mt-1">
+                <CopyAddressButton address={current} />
+              </div>
             </div>
-          </div>
+          )}
 
           {valid && (
             <div className="rounded-xl border border-line bg-bg p-3.5">
@@ -186,25 +193,26 @@ export default function WalletModal({
               <Check className="h-4 w-4" />
               Gunakan alamat ini
             </button>
-            <button
-              onClick={() => onApply(defaultAddress)}
-              disabled={current === defaultAddress}
-              className="flex items-center justify-center gap-2 rounded-xl border border-line bg-surface-2 px-4 py-2.5 text-sm font-semibold text-slate-300 transition-colors hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              <RotateCcw className="h-4 w-4" />
-              Reset ke default
-            </button>
+            {current && (
+              <button
+                onClick={onDisconnect}
+                className="flex items-center justify-center gap-2 rounded-xl border border-line bg-surface-2 px-4 py-2.5 text-sm font-semibold text-slate-300 transition-colors hover:text-white"
+              >
+                <LogOut className="h-4 w-4" />
+                Putuskan
+              </button>
+            )}
           </div>
 
           <p className="text-center text-xs text-muted">
-            Alamat disimpan di browser ini saja (localStorage). Portofolio,
-            NFT & aktivitas tetap snapshot wallet default 19 Nov 2026 — yang
-            berubah mengikuti alamat adalah approval, saldo native, status
-            AUGENT, dan alamat pengirim di preview transaksi.
+            Alamat disimpan di browser ini saja (localStorage) — setiap
+            pengunjung memakai alamatnya sendiri.
           </p>
-          <p className="text-center font-mono text-xs text-muted">
-            {shortenAddress(current)}
-          </p>
+          {current && (
+            <p className="text-center font-mono text-xs text-muted">
+              {shortenAddress(current)}
+            </p>
+          )}
         </div>
       </div>
     </div>

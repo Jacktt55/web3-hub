@@ -1,9 +1,10 @@
-import type { ChainInfo, GasFee, TokenHolding } from '../types';
+import type { ChainInfo, GasFee } from '../types';
 
 /**
- * Seed data — snapshot 19 Nov 2026.
- * Prices / gas are the verified snapshot values from the dashboard;
- * the live layer (CoinGecko + public RPCs) replaces these at runtime.
+ * Public reference data — chains and gas snapshot rows.
+ * No personal data lives here: the app has no default wallet and no
+ * seeded holdings. Prices / gas are replaced live at runtime
+ * (CoinGecko + public RPCs); the snapshot rows are the fallback.
  */
 
 export const CHAINS: readonly ChainInfo[] = [
@@ -62,80 +63,6 @@ export function chainInfo(chain: ChainInfo['id']): ChainInfo {
   const found = CHAINS.find((c) => c.id === chain);
   if (!found) throw new Error(`Unknown chain: ${chain}`);
   return found;
-}
-
-/** Wallet used across the app (user's Binance Agentic Wallet). */
-export const WALLET_ADDRESS = '0xDf0bD911CFA8698d65e56c5E60B6591DA80B58ff' as const;
-
-export const HOLDINGS: readonly TokenHolding[] = [
-  {
-    id: 'btc',
-    symbol: 'BTC',
-    name: 'Bitcoin',
-    chain: 'bitcoin',
-    balance: 0.25,
-    priceUsd: 64912,
-    change24h: 0.07,
-    logoColor: '#f7931a',
-  },
-  {
-    id: 'eth',
-    symbol: 'ETH',
-    name: 'Ethereum',
-    chain: 'ethereum',
-    balance: 4.2,
-    priceUsd: 1824,
-    change24h: 0.23,
-    logoColor: '#627eea',
-  },
-  {
-    id: 'eth-base',
-    symbol: 'ETH',
-    name: 'Ethereum (Base)',
-    chain: 'base',
-    balance: 1.4,
-    priceUsd: 1824,
-    change24h: 0.23,
-    logoColor: '#0052ff',
-  },
-  {
-    id: 'bnb',
-    symbol: 'BNB',
-    name: 'BNB',
-    chain: 'bsc',
-    balance: 1.6,
-    priceUsd: 597.73,
-    change24h: 1.06,
-    logoColor: '#f0b90b',
-  },
-  {
-    id: 'sol',
-    symbol: 'SOL',
-    name: 'Solana',
-    chain: 'solana',
-    balance: 24,
-    priceUsd: 74.94,
-    change24h: 0.04,
-    logoColor: '#14f195',
-  },
-  {
-    id: 'usdt',
-    symbol: 'USDT',
-    name: 'Tether',
-    chain: 'bsc',
-    balance: 4450,
-    priceUsd: 1,
-    change24h: 0,
-    logoColor: '#26a17b',
-  },
-] as const;
-
-export function holdingValue(h: TokenHolding): number {
-  return h.balance * h.priceUsd;
-}
-
-export function portfolioTotal(holdings: readonly TokenHolding[]): number {
-  return holdings.reduce((sum, h) => sum + holdingValue(h), 0);
 }
 
 export const GAS_FEES: readonly GasFee[] = [

@@ -28,23 +28,8 @@ export interface ChainInfo {
 }
 
 /* ------------------------------------------------------------------ */
-/* Pillar 1 — Crypto & DeFi                                            */
+/* Pillar 1 — Crypto & DeFi (public market data)                       */
 /* ------------------------------------------------------------------ */
-
-export interface TokenHolding {
-  id: string;
-  symbol: string;
-  name: string;
-  chain: ChainId;
-  /** Amount held, in token units. */
-  balance: number;
-  /** Price per token in USD. */
-  priceUsd: number;
-  /** 24h price change in percent. */
-  change24h: number;
-  /** Accent color for the token dot / chart slice. */
-  logoColor: string;
-}
 
 export type GasStatus = 'live' | 'estimate' | 'snapshot';
 
@@ -79,30 +64,6 @@ export interface YieldPool {
 /* Pillar 2 — NFT Utility & Showcase                                   */
 /* ------------------------------------------------------------------ */
 
-export type NftClass = 'Scoop' | 'Legend' | 'Platinum' | 'Jade' | 'Common';
-
-export interface NftTrait {
-  trait_type: string;
-  value: string;
-}
-
-export interface NftItem {
-  id: string;
-  tokenId: string;
-  name: string;
-  collection: string;
-  /** Contract address when recorded; omitted when unknown. */
-  contract?: Address;
-  chain: ChainId;
-  /** Artwork URL (placeholder seeds until real media is wired). */
-  image: string;
-  class: NftClass;
-  /** Floor price in USD when known. */
-  floorUsd?: number;
-  acquiredAt: string; // ISO 8601
-  traits: NftTrait[];
-}
-
 export type MintPassStatus = 'live' | 'upcoming' | 'soldout';
 
 export interface MintPass {
@@ -124,20 +85,6 @@ export interface MintPass {
 
 export type RiskLevel = 'low' | 'medium' | 'high' | 'critical';
 
-export interface ContractAudit {
-  address: Address;
-  name: string;
-  chain: ChainId;
-  risk: RiskLevel;
-  /** Safety score 0–100 (higher = safer). */
-  score: number;
-  /** Human-readable findings; empty when clean. */
-  flags: string[];
-  /** Whether the source is verified on the chain explorer. */
-  verified: boolean;
-  checkedAt: string; // ISO 8601
-}
-
 export interface TokenApproval {
   id: string;
   token: string;
@@ -151,27 +98,8 @@ export interface TokenApproval {
 }
 
 /* ------------------------------------------------------------------ */
-/* Activity & navigation                                               */
+/* Navigation                                                          */
 /* ------------------------------------------------------------------ */
-
-export type ActivityKind =
-  | 'mint'
-  | 'transfer'
-  | 'swap'
-  | 'approval'
-  | 'scan'
-  | 'claim'
-  | 'submit';
-
-export interface ActivityItem {
-  id: string;
-  kind: ActivityKind;
-  title: string;
-  detail: string;
-  chain: ChainId;
-  txHash?: string;
-  timestamp: string; // ISO 8601
-}
 
 /** The five primary views of the app. */
 export type View = 'overview' | 'crypto' | 'nft' | 'security' | 'activity';
@@ -180,8 +108,8 @@ export type View = 'overview' | 'crypto' | 'nft' | 'security' | 'activity';
 
 /**
  * A transaction prepared for preview. Nothing here signs or broadcasts;
- * execution happens in chat with Guts after the user's explicit
- * confirmation. gasEstimate null = could not be estimated (preview only).
+ * execution happens from the visitor's own wallet after they check the
+ * details. gasEstimate null = could not be estimated (preview only).
  */
 export interface PreparedTx {
   title: string;

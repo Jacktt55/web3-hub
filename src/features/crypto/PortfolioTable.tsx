@@ -1,54 +1,108 @@
-import { chainInfo, holdingValue } from '../../data';
-import { formatPct, formatUsd } from '../../lib/format';
-import type { TokenHolding } from '../../types';
+import { Wallet } from 'lucide-react';
+import { chainInfo } from '../../data';
+import { formatPct, formatUnits, formatUsd } from '../../lib/format';
+import type { Address, ChainId } from '../../types';
 import Badge from '../../components/ui/Badge';
+import SkeletonRow from '../../components/ui/SkeletonRow';
 
-interface PortfolioTableProps {
-  holdings: readonly TokenHolding[];
-  /** Topbar search query — filters by symbol or name. */
-  query: string;
-  /** Live USD prices by symbol (CoinGecko); falls back to seed prices. */
-  livePrices?: Record<string, number> | null;
-  /** Live 24h changes in percent by symbol. */
-  liveChanges?: Record<string, number> | null;
-  live?: boolean;
+export interface NativeBalanceRow {
+  chain: ChainId;
+  balance: bigint;
 }
 
+interface PortfolioTableProps {
+  /** Active wallet, null when none is entered yet. */
+  wallet: Address | null;
+  /** Live native balances, null while the first read is pending. */
+  balances: readonly NativeBalanceRow[] | null;
+  /** Live USD prices by native symbol (CoinGecko). */
+  livePrices?: Record<string, number> | null;
+  /** Live 24h changes in percent by native symbol. */
+  liveChanges?: Record<string, number> | null;
+  onConnect: () => void;
+}
+
+/**
+ * Native balances of the visitor's own wallet, read live on-chain.
+ * No seeded holdings — without a wallet the table shows an empty state.
+ */
 export default function PortfolioTable({
-  holdings,
-  query,
+  wallet,
+  balances,
   livePrices = null,
   liveChanges = null,
-  live = false,
+  onConnect,
 }: PortfolioTableProps) {
-  const q = query.trim().toLowerCase();
-  const priced = holdings.map((h) => ({
-    ...h,
-    priceUsd: livePrices?.[h.symbol] ?? h.priceUsd,
-    change24h: liveChanges?.[h.symbol] ?? h.change24h,
-  }));
-  const rows = priced.filter(
-    (h) =>
-      q === '' ||
-      h.symbol.toLowerCase().includes(q) ||
-      h.name.toLowerCase().includes(q),
-  );
-  const total = priced.reduce((sum, h) => sum + holdingValue(h), 0);
+  if (!wallet) {
+    return (
+      <section className="rounded-2xl border border-line bg-surface p-6 text-center">
+        <h2 className="text-lg font-bold text-white">Saldo Wallet</h2>
+        <p className="mx-auto mt-2 max-w-md text-sm text-muted">
+          Masukkan alamat wallet kamu untuk melihat saldo native per chain,
+          dibaca langsung dari RPC publik. Tidak ada koneksi wallet dan tidak
+          ada data yang disimpan di server.
+        </p>
+        <button
+          onClick={onConnect}
+          className="mt-4 inline-flex items-center gap-2 rounded-xl bg-accent px-5 py-2.5 text-sm font-semibold text-white shadow-lg shadow-accent/20 transition-colors hover:bg-blue-600"
+        >
+          <Wallet className="h-4 w-4" />
+          Connect Wallet
+        </button>
+      </section>
+    );
+  }
+
+  if (balances === null) {
+    return (
+      <section className="rounded-2xl border border-line bg-surface p-6">
+        <h2 className="mb-4 text-lg font-bold text-white">Saldo Wallet</h2>
+        <div className="space-y-2.5">
+          <SkeletonRow />
+          <SkeletonRow />
+          <SkeletonRow />
+          <p className="pt-1 text-center text-xs text-muted">
+            Membaca saldo native on-chain…
+          </p>
+        </div>
+      </section>
+    );
+  }
+
+  const rows = balances.map((b) => {
+    const chain = chainInfo(b.chain);
+    const symbol = chain.nativeSymbol;
+    const amount = Number(formatUnits(b.balance, 18));
+    const price = livePrices?.[symbol];
+    const change = liveChanges?.[symbol];
+    return {
+      chain: b.chain,
+      symbol,
+      name: chain.name,
+      color: chain.color,
+      amount,
+      price,
+      change,
+      value: price !== undefined ? amount * price : undefined,
+    };
+  });
+  const total = rows.reduce((sum, r) => sum + (r.value ?? 0), 0);
+  const hasPrice = rows.some((r) => r.price !== undefined);
 
   return (
     <section className="rounded-2xl border border-line bg-surface p-6">
       <div className="mb-4 flex items-start justify-between gap-3">
         <div>
           <h2 className="flex flex-wrap items-center gap-2 text-lg font-bold text-white">
-            Portofolio
-            {live ? (
+            Saldo Wallet
+            {hasPrice ? (
               <Badge variant="green">LIVE · CoinGecko</Badge>
             ) : (
-              <Badge variant="blue">Snapshot 19 Nov 2026</Badge>
+              <Badge variant="blue">Menunggu harga live</Badge>
             )}
           </h2>
-          <p className="text-sm text-muted">
-            {holdings.length} aset · {rows.length} ditampilkan
+          <p className="font-mono text-xs text-muted">
+            {wallet.slice(0, 6)}…{wallet.slice(-4)} · {rows.length} chain
           </p>
         </div>
         <p className="text-right">
@@ -56,47 +110,48 @@ export default function PortfolioTable({
             Total Nilai
           </span>
           <span className="font-mono text-xl font-bold text-white">
-            {formatUsd(total)}
+            {hasPrice ? formatUsd(total) : '—'}
           </span>
         </p>
       </div>
 
-      <div className="overflow-x-auto">
-        <table className="w-full min-w-[560px] text-sm">
-          <thead>
-            <tr className="border-b border-line text-left text-[11px] uppercase tracking-wide text-muted">
-              <th className="pb-2.5 pr-2 font-semibold">Aset</th>
-              <th className="pb-2.5 pr-2 font-semibold">Chain</th>
-              <th className="pb-2.5 pr-2 text-right font-semibold">Saldo</th>
-              <th className="pb-2.5 pr-2 text-right font-semibold">Harga</th>
-              <th className="pb-2.5 pr-2 text-right font-semibold">24j</th>
-              <th className="pb-2.5 text-right font-semibold">Nilai</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((h) => {
-              const value = holdingValue(h);
-              const share = total > 0 ? (value / total) * 100 : 0;
-              const chain = chainInfo(h.chain);
-              return (
+      {rows.length === 0 ? (
+        <p className="py-8 text-center text-sm text-muted">
+          Saldo tidak terbaca — RPC tidak menjawab. Coba segarkan halaman.
+        </p>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[560px] text-sm">
+            <thead>
+              <tr className="border-b border-line text-left text-[11px] uppercase tracking-wide text-muted">
+                <th className="pb-2.5 pr-2 font-semibold">Aset</th>
+                <th className="pb-2.5 pr-2 font-semibold">Chain</th>
+                <th className="pb-2.5 pr-2 text-right font-semibold">Saldo</th>
+                <th className="pb-2.5 pr-2 text-right font-semibold">Harga</th>
+                <th className="pb-2.5 pr-2 text-right font-semibold">24j</th>
+                <th className="pb-2.5 text-right font-semibold">Nilai</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r) => (
                 <tr
-                  key={h.id}
+                  key={r.chain}
                   className="border-b border-line/70 last:border-0 hover:bg-surface-2/60"
                 >
                   <td className="py-3 pr-2">
                     <span className="flex items-center gap-2.5">
                       <span
                         className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-bold text-white"
-                        style={{ backgroundColor: h.logoColor }}
+                        style={{ backgroundColor: r.color }}
                       >
-                        {h.symbol.slice(0, 2)}
+                        {r.symbol.slice(0, 2)}
                       </span>
                       <span>
                         <span className="block font-semibold text-white">
-                          {h.symbol}
+                          {r.symbol}
                         </span>
                         <span className="block text-xs text-muted">
-                          {h.name}
+                          {r.name}
                         </span>
                       </span>
                     </span>
@@ -105,48 +160,51 @@ export default function PortfolioTable({
                     <span className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-300">
                       <i
                         className="h-2 w-2 rounded-full"
-                        style={{ backgroundColor: chain.color }}
+                        style={{ backgroundColor: r.color }}
                       />
-                      {chain.name}
+                      {r.name}
                     </span>
                   </td>
                   <td className="py-3 pr-2 text-right font-mono tabular-nums">
-                    {h.balance.toLocaleString('en-US')}
+                    {r.amount.toLocaleString('en-US', {
+                      maximumFractionDigits: 6,
+                    })}
                   </td>
                   <td className="py-3 pr-2 text-right font-mono tabular-nums">
-                    {formatUsd(h.priceUsd)}
+                    {r.price !== undefined ? formatUsd(r.price) : '—'}
                   </td>
                   <td
                     className={`py-3 pr-2 text-right font-mono tabular-nums ${
-                      h.change24h >= 0 ? 'text-profit' : 'text-loss'
+                      r.change === undefined
+                        ? 'text-muted'
+                        : r.change >= 0
+                          ? 'text-profit'
+                          : 'text-loss'
                     }`}
                   >
-                    {formatPct(h.change24h)}
+                    {r.change !== undefined ? formatPct(r.change) : '—'}
                   </td>
                   <td className="py-3 text-right">
                     <span className="block font-mono font-semibold tabular-nums text-white">
-                      {formatUsd(value)}
+                      {r.value !== undefined ? formatUsd(r.value) : '—'}
                     </span>
-                    <span className="mt-1 block h-1 w-20 overflow-hidden rounded-full bg-surface-2 ml-auto">
-                      <span
-                        className="block h-full rounded-full bg-gradient-to-r from-accent to-accent-2"
-                        style={{ width: `${Math.max(share, 2)}%` }}
-                      />
-                    </span>
+                    {r.value !== undefined && total > 0 && (
+                      <span className="mt-1 ml-auto block h-1 w-20 overflow-hidden rounded-full bg-surface-2">
+                        <span
+                          className="block h-full rounded-full bg-gradient-to-r from-accent to-accent-2"
+                          style={{
+                            width: `${Math.max((r.value / total) * 100, 2)}%`,
+                          }}
+                        />
+                      </span>
+                    )}
                   </td>
                 </tr>
-              );
-            })}
-            {rows.length === 0 && (
-              <tr>
-                <td colSpan={6} className="py-8 text-center text-muted">
-                  Tidak ada aset yang cocok dengan “{query}”.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </section>
   );
 }

@@ -1,74 +1,51 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
-  ArrowLeftRight,
+  Bitcoin,
+  Coins,
   Flame,
-  Gift,
-  Image as ImageIcon,
-  Repeat,
-  ScanLine,
-  Send,
-  ShieldCheck,
-  Sparkles,
   TrendingUp,
   Wallet,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import Sidebar from './components/layout/Sidebar';
 import Topbar from './components/layout/Topbar';
-import DetailDrawer from './components/layout/DetailDrawer';
 import Toast from './components/layout/Toast';
 import type { ToastData } from './components/layout/Toast';
 import TxPreviewModal from './components/layout/TxPreviewModal';
 import WalletModal from './components/layout/WalletModal';
-import CopyAddressButton from './components/ui/CopyAddressButton';
+import Badge from './components/ui/Badge';
 import PortfolioTable from './features/crypto/PortfolioTable';
 import GasTracker from './features/crypto/GasTracker';
 import YieldComparator from './features/crypto/YieldComparator';
-import NftGrid from './features/nft/NftGrid';
-import NftDetailModal from './features/nft/NftDetailModal';
+import NftLookup from './features/nft/NftLookup';
 import MintPassCard from './features/nft/MintPassCard';
 import ContractScanner from './features/security/ContractScanner';
 import ApprovalList from './features/security/ApprovalList';
 import { useLiveData } from './hooks/useLiveData';
 import {
-  ACTIVITY,
-  CONTRACT_AUDITS,
-  HOLDINGS,
+  CHAINS,
   MINT_PASSES,
-  NFTS,
-  TOKEN_APPROVALS,
-  WALLET_ADDRESS,
   bestApy,
   chainInfo,
   cheapestGas,
 } from './data';
-import { formatDateTime, formatUsd, isAddress, timeAgo } from './lib/format';
-import {
-  findWatch,
-  prepareAugentClaimTx,
-  preparePresschainPreview,
-  prepareRevokeTx,
-} from './lib/live';
+import { formatPct, formatUsd, isAddress } from './lib/format';
+import { findWatch, prepareRevokeTx } from './lib/live';
 import { getViewMeta } from './lib/router';
 import type {
-  ActivityItem,
-  ActivityKind,
   Address,
   MintPass,
-  NftItem,
   PreparedTx,
   TokenApproval,
   View,
 } from './types';
 
-const KIND_ICONS: Record<ActivityKind, LucideIcon> = {
-  mint: Sparkles,
-  transfer: ArrowLeftRight,
-  swap: Repeat,
-  approval: ShieldCheck,
-  scan: ScanLine,
-  claim: Gift,
-  submit: Send,
+const COIN_NAMES: Record<string, string> = {
+  BTC: 'Bitcoin',
+  ETH: 'Ethereum',
+  BNB: 'BNB',
+  SOL: 'Solana',
+  USDT: 'Tether',
 };
 
 interface KpiCardProps {
@@ -93,60 +70,24 @@ function KpiCard({ label, value, sub, icon: Icon }: KpiCardProps) {
   );
 }
 
-function ActivityRow({
-  item,
-  onClick,
-}: {
-  item: ActivityItem;
-  onClick: () => void;
-}) {
-  const Icon = KIND_ICONS[item.kind];
-  const chain = chainInfo(item.chain);
-  return (
-    <button
-      onClick={onClick}
-      className="flex w-full items-start gap-3 rounded-xl border border-line bg-bg px-4 py-3.5 text-left transition-colors hover:border-accent/40"
-    >
-      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-surface-2">
-        <Icon className="h-4 w-4 text-accent-2" />
-      </span>
-      <span className="min-w-0 flex-1">
-        <span className="block truncate text-sm font-semibold text-white">
-          {item.title}
-        </span>
-        <span className="mt-0.5 block truncate text-xs text-muted">
-          {item.detail}
-        </span>
-        <span className="mt-1 flex items-center gap-2 text-[11px] text-faint">
-          <i
-            className="h-2 w-2 rounded-full"
-            style={{ backgroundColor: chain.color }}
-          />
-          {chain.name} · {timeAgo(item.timestamp)}
-        </span>
-      </span>
-    </button>
-  );
-}
-
 export default function App() {
   const [view, setView] = useState<View>('overview');
   const [query, setQuery] = useState('');
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [toast, setToast] = useState<ToastData | null>(null);
-  const [selectedNft, setSelectedNft] = useState<NftItem | null>(null);
-  const [drawerActivity, setDrawerActivity] = useState<ActivityItem | null>(
-    null,
-  );
   const [pendingTx, setPendingTx] = useState<PreparedTx | null>(null);
   const [walletModalOpen, setWalletModalOpen] = useState(false);
-  /** Active wallet — saved in this browser only, default is the user's. */
-  const [wallet, setWallet] = useState<Address>(() => {
+  /**
+   * Active wallet — the VISITOR's own address, saved in this browser
+   * only. Null = no wallet entered yet. The app has no default wallet
+   * and no personal data: it is a public tool.
+   */
+  const [wallet, setWallet] = useState<Address | null>(() => {
     const saved =
       typeof window === 'undefined'
         ? null
         : window.localStorage.getItem('web3hub-wallet');
-    return isAddress(saved) ? (saved as Address) : WALLET_ADDRESS;
+    return isAddress(saved) ? (saved as Address) : null;
   });
 
   const live = useLiveData(wallet);
@@ -161,64 +102,49 @@ export default function App() {
     setToast({ id: Date.now(), message, kind });
   }
 
-  /** Approvals: live on-chain once read, seed list while waiting. */
-  const approvals = live.approvals ?? TOKEN_APPROVALS;
-
-  const total = useMemo(
-    () =>
-      HOLDINGS.reduce(
-        (sum, h) =>
-          sum + h.balance * (live.prices?.[h.symbol] ?? h.priceUsd),
-        0,
-      ),
-    [live.prices],
-  );
   const cheapest = useMemo(() => cheapestGas(live.gas), [live.gas]);
   const bestPool = useMemo(() => bestApy(live.yields), [live.yields]);
-  const alertCount = useMemo(
+  const riskyApprovals = useMemo(
     () =>
-      approvals.filter(
+      (live.approvals ?? []).filter(
         (a) =>
           a.risk === 'medium' || a.risk === 'high' || a.risk === 'critical',
-      ).length +
-      CONTRACT_AUDITS.filter(
-        (a) => a.risk === 'high' || a.risk === 'critical',
       ).length,
-    [approvals],
+    [live.approvals],
   );
-
-  const augentNote =
-    live.augentPhase === null
-      ? undefined
-      : live.augentPhase === 3
-        ? 'Pool BUKA (fase 3) — claim siap dieksekusi.'
-        : `Pool belum buka (fase ${live.augentPhase}) — auto-claim aktif, pantau tiap jam.`;
 
   function handleApplyWallet(address: Address): void {
     setWallet(address);
     window.localStorage.setItem('web3hub-wallet', address);
     setWalletModalOpen(false);
     showToast(
-      address === WALLET_ADDRESS
-        ? 'Wallet dikembalikan ke alamat default.'
-        : `Wallet aktif diganti ke ${address.slice(0, 6)}…${address.slice(-4)}.`,
+      `Wallet aktif: ${address.slice(0, 6)}…${address.slice(-4)}.`,
       'success',
     );
+  }
+
+  function handleDisconnectWallet(): void {
+    setWallet(null);
+    window.localStorage.removeItem('web3hub-wallet');
+    setWalletModalOpen(false);
+    showToast('Wallet diputuskan.');
   }
 
   async function handleRevokeRequest(
     approval: TokenApproval,
   ): Promise<void> {
+    if (!wallet) {
+      showToast('Masukkan alamat wallet dulu.');
+      return;
+    }
     const watch = findWatch(approval.token, approval.spender);
     if (!watch) {
-      showToast(
-        'Approval ini dari data contoh — tidak ada kontrak live untuk disiapkan.',
-      );
+      showToast('Approval ini tidak ada di watchlist live.');
       return;
     }
     try {
       const nativePrice =
-        live.prices?.[chainInfo(watch.chain).nativeSymbol] ?? 0;
+        live.prices?.[watch.chain === 'bsc' ? 'BNB' : 'ETH'] ?? 0;
       const tx = await prepareRevokeTx(watch, nativePrice, wallet);
       setPendingTx(tx);
     } catch {
@@ -226,36 +152,14 @@ export default function App() {
     }
   }
 
-  async function handleMintPreview(pass: MintPass): Promise<void> {
-    if (pass.id === 'web3hub-genesis') {
-      showToast('Ini pass contoh — belum ada kontrak live untuk mint ini.');
-      return;
-    }
-    if (pass.id === 'augent-claim') {
-      try {
-        const tx = await prepareAugentClaimTx(live.prices?.BNB ?? 0, wallet);
-        setPendingTx(tx);
-      } catch {
-        showToast('Gagal menyiapkan preview claim — RPC tidak menjawab.');
-      }
-      return;
-    }
-    if (pass.id === 'presschain-ed9') {
-      // Static preview only — no live Presschain reads (Presschain ditunda).
-      setPendingTx(preparePresschainPreview(wallet));
-      return;
-    }
-    showToast(`Preview ${pass.title} — ${pass.price} · ${pass.date}`);
+  function handleMintPreview(pass: MintPass): void {
+    showToast(
+      `“${pass.title}” adalah pass contoh (demo) — belum ada kontrak live untuk mint ini.`,
+    );
   }
 
   const meta = getViewMeta(view);
-  const q = query.trim().toLowerCase();
-  const filteredActivity = ACTIVITY.filter(
-    (a) =>
-      q === '' ||
-      a.title.toLowerCase().includes(q) ||
-      a.detail.toLowerCase().includes(q),
-  );
+  const q = query.trim();
 
   return (
     <div className="min-h-screen bg-bg">
@@ -266,6 +170,7 @@ export default function App() {
         open={sidebarOpen}
         onClose={() => setSidebarOpen(false)}
         onSecondary={(label) => showToast(`${label} — segera hadir.`)}
+        onWalletClick={() => setWalletModalOpen(true)}
       />
 
       <div className="lg:pl-60">
@@ -300,30 +205,34 @@ export default function App() {
                 ? `LIVE · terakhir diperbarui ${live.lastUpdated?.toLocaleTimeString('en-GB') ?? '—'}`
                 : 'SNAPSHOT — menunggu data live pertama…'}
             </p>
-            {wallet !== WALLET_ADDRESS && (
-              <p className="mt-1.5 text-xs text-accent-2">
-                Wallet aktif {wallet.slice(0, 6)}…{wallet.slice(-4)} —
-                portofolio, NFT & aktivitas masih snapshot wallet default
-                19 Nov 2026; approval, AUGENT & preview transaksi memakai
-                alamat ini.
-              </p>
-            )}
           </header>
 
           {view === 'overview' && (
             <div className="space-y-5">
               <div className="grid grid-cols-2 gap-4 xl:grid-cols-4">
                 <KpiCard
-                  label="Total Portofolio"
-                  value={formatUsd(total)}
-                  sub={`${HOLDINGS.length} aset · 5 chain${live.prices ? ' · harga live' : ''}`}
-                  icon={Wallet}
+                  label="Harga BTC"
+                  value={
+                    live.prices?.BTC ? formatUsd(live.prices.BTC) : '—'
+                  }
+                  sub={
+                    live.changes?.BTC !== undefined
+                      ? `24j ${formatPct(live.changes.BTC)}`
+                      : 'CoinGecko · 30 dtk'
+                  }
+                  icon={Bitcoin}
                 />
                 <KpiCard
-                  label="NFT Terkumpul"
-                  value={String(NFTS.length)}
-                  sub="Termasuk Presschain #390 & Pokechain Lugia"
-                  icon={ImageIcon}
+                  label="Harga ETH"
+                  value={
+                    live.prices?.ETH ? formatUsd(live.prices.ETH) : '—'
+                  }
+                  sub={
+                    live.changes?.ETH !== undefined
+                      ? `24j ${formatPct(live.changes.ETH)}`
+                      : 'CoinGecko · 30 dtk'
+                  }
+                  icon={Coins}
                 />
                 <KpiCard
                   label="Gas Termurah"
@@ -350,28 +259,62 @@ export default function App() {
               </div>
 
               <div className="grid items-start gap-5 xl:grid-cols-[1.55fr_1fr]">
-                <GasTracker fees={live.gas} live={live.gasLive} />
+                <GasTracker fees={live.gas} live={live.gasLive} query={q} />
                 <section className="rounded-2xl border border-line bg-surface p-6">
                   <div className="mb-4 flex items-center justify-between">
                     <h2 className="text-lg font-bold text-white">
-                      Aktivitas Terbaru
+                      Harga Live
                     </h2>
-                    <button
-                      onClick={() => setView('activity')}
-                      className="text-xs font-semibold text-accent hover:underline"
-                    >
-                      Lihat semua
-                    </button>
+                    {live.prices ? (
+                      <Badge variant="green">CoinGecko</Badge>
+                    ) : (
+                      <Badge variant="blue">Menunggu…</Badge>
+                    )}
                   </div>
-                  <div className="space-y-2.5">
-                    {ACTIVITY.slice(0, 5).map((a) => (
-                      <ActivityRow
-                        key={a.id}
-                        item={a}
-                        onClick={() => setDrawerActivity(a)}
-                      />
-                    ))}
-                  </div>
+                  {live.prices ? (
+                    <ul className="space-y-2.5">
+                      {(['BTC', 'ETH', 'BNB', 'SOL', 'USDT'] as const)
+                        .filter((s) => live.prices?.[s] !== undefined)
+                        .map((s) => {
+                          const change = live.changes?.[s];
+                          return (
+                            <li
+                              key={s}
+                              className="flex items-center justify-between gap-3 rounded-xl border border-line bg-bg px-4 py-3"
+                            >
+                              <span className="text-sm font-semibold text-white">
+                                {s}{' '}
+                                <span className="text-xs font-normal text-muted">
+                                  {COIN_NAMES[s]}
+                                </span>
+                              </span>
+                              <span className="text-right">
+                                <span className="block font-mono font-semibold tabular-nums text-white">
+                                  {formatUsd(live.prices?.[s] ?? 0)}
+                                </span>
+                                <span
+                                  className={`block font-mono text-xs tabular-nums ${
+                                    change === undefined
+                                      ? 'text-muted'
+                                      : change >= 0
+                                        ? 'text-profit'
+                                        : 'text-loss'
+                                  }`}
+                                >
+                                  {change !== undefined
+                                    ? `24j ${formatPct(change)}`
+                                    : '—'}
+                                </span>
+                              </span>
+                            </li>
+                          );
+                        })}
+                    </ul>
+                  ) : (
+                    <p className="py-8 text-center text-sm text-muted">
+                      Menunggu data CoinGecko…
+                    </p>
+                  )}
                 </section>
               </div>
 
@@ -380,9 +323,11 @@ export default function App() {
                   Peringatan Keamanan
                 </h2>
                 <p className="text-sm text-muted">
-                  {alertCount === 0
-                    ? 'Tidak ada peringatan aktif — wallet dan kontrak terpantau bersih.'
-                    : `${alertCount} item butuh perhatian di Security Scanner — approval berisiko dan kontrak contoh berisiko tinggi di database lokal.`}
+                  {wallet === null
+                    ? 'Masukkan alamat wallet kamu di Security Scanner untuk memeriksa approval berisiko.'
+                    : riskyApprovals === 0
+                      ? 'Tidak ada approval berisiko dari watchlist token × spender untuk wallet ini.'
+                      : `${riskyApprovals} approval berisiko di wallet ini — periksa di Security Scanner.`}
                 </p>
               </div>
             </div>
@@ -391,15 +336,19 @@ export default function App() {
           {view === 'crypto' && (
             <div className="space-y-5">
               <PortfolioTable
-                holdings={HOLDINGS}
-                query={query}
+                wallet={wallet}
+                balances={live.nativeBalances}
                 livePrices={live.prices}
                 liveChanges={live.changes}
-                live={live.prices !== null}
+                onConnect={() => setWalletModalOpen(true)}
               />
               <div className="grid items-start gap-5 xl:grid-cols-2">
-                <GasTracker fees={live.gas} live={live.gasLive} />
-                <YieldComparator pools={live.yields} live={live.yieldsLive} />
+                <GasTracker fees={live.gas} live={live.gasLive} query={q} />
+                <YieldComparator
+                  pools={live.yields}
+                  live={live.yieldsLive}
+                  query={q}
+                />
               </div>
             </div>
           )}
@@ -415,52 +364,98 @@ export default function App() {
                     <MintPassCard
                       key={p.id}
                       pass={p}
-                      liveNote={
-                        p.id === 'augent-claim' ? augentNote : undefined
-                      }
-                      onPreview={(pass) => void handleMintPreview(pass)}
+                      onPreview={handleMintPreview}
                     />
                   ))}
                 </div>
+                <p className="mt-3 text-xs text-muted">
+                  Pass di atas adalah demo tampilan — belum ada kontrak live.
+                </p>
               </section>
-              <NftGrid
-                nfts={NFTS}
-                query={query}
-                onSelect={setSelectedNft}
-                images={live.nftImages}
-              />
+              <NftLookup />
             </div>
           )}
 
           {view === 'security' && (
             <div className="grid items-start gap-5 xl:grid-cols-2">
-              <ContractScanner audits={CONTRACT_AUDITS} />
-              <ApprovalList
-                approvals={live.approvals}
-                approvalsLive={live.approvalsLive}
-                onRevokeRequest={(a) => void handleRevokeRequest(a)}
-              />
+              <ContractScanner />
+              {wallet ? (
+                <ApprovalList
+                  approvals={live.approvals}
+                  approvalsLive={live.approvalsLive}
+                  onRevokeRequest={(a) => void handleRevokeRequest(a)}
+                />
+              ) : (
+                <section className="rounded-2xl border border-line bg-surface p-6 text-center">
+                  <h2 className="text-lg font-bold text-white">
+                    Approval Checker
+                  </h2>
+                  <p className="mx-auto mt-2 max-w-md text-sm text-muted">
+                    Masukkan alamat wallet kamu untuk memeriksa approval token
+                    ke spender — dibaca langsung dari chain.
+                  </p>
+                  <button
+                    onClick={() => setWalletModalOpen(true)}
+                    className="mt-4 inline-flex items-center gap-2 rounded-xl bg-accent px-5 py-2.5 text-sm font-semibold text-white shadow-lg shadow-accent/20 transition-colors hover:bg-blue-600"
+                  >
+                    <Wallet className="h-4 w-4" />
+                    Connect Wallet
+                  </button>
+                </section>
+              )}
             </div>
           )}
 
           {view === 'activity' && (
             <section className="rounded-2xl border border-line bg-surface p-6">
-              <h2 className="mb-4 text-lg font-bold text-white">
-                Semua Aktivitas
+              <h2 className="mb-1 text-lg font-bold text-white">
+                Riwayat di Explorer
               </h2>
-              {filteredActivity.length === 0 ? (
-                <p className="py-8 text-center text-sm text-muted">
-                  Tidak ada aktivitas yang cocok dengan “{query}”.
-                </p>
-              ) : (
-                <div className="space-y-2.5">
-                  {filteredActivity.map((a) => (
-                    <ActivityRow
-                      key={a.id}
-                      item={a}
-                      onClick={() => setDrawerActivity(a)}
-                    />
+              <p className="mb-4 text-sm text-muted">
+                Web3 Hub tidak menyimpan riwayat transaksi — riwayat lengkap
+                alamat ini ada di explorer tiap chain.
+              </p>
+              {wallet ? (
+                <ul className="space-y-2.5">
+                  {CHAINS.filter((c) =>
+                    ['ethereum', 'bsc', 'base', 'arbitrum', 'polygon'].includes(
+                      c.id,
+                    ),
+                  ).map((c) => (
+                    <li
+                      key={c.id}
+                      className="flex items-center justify-between gap-3 rounded-xl border border-line bg-bg px-4 py-3"
+                    >
+                      <span className="flex items-center gap-2 text-sm font-medium text-white">
+                        <i
+                          className="h-2 w-2 rounded-full"
+                          style={{ backgroundColor: c.color }}
+                        />
+                        {c.name}
+                      </span>
+                      <a
+                        href={`${c.explorer}/address/${wallet}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-xs font-semibold text-accent hover:underline"
+                      >
+                        Lihat di {new URL(c.explorer).hostname} ↗
+                      </a>
+                    </li>
                   ))}
+                </ul>
+              ) : (
+                <div className="py-6 text-center">
+                  <p className="text-sm text-muted">
+                    Masukkan alamat wallet untuk melihat tautan explorer-nya.
+                  </p>
+                  <button
+                    onClick={() => setWalletModalOpen(true)}
+                    className="mt-4 inline-flex items-center gap-2 rounded-xl bg-accent px-5 py-2.5 text-sm font-semibold text-white shadow-lg shadow-accent/20 transition-colors hover:bg-blue-600"
+                  >
+                    <Wallet className="h-4 w-4" />
+                    Connect Wallet
+                  </button>
                 </div>
               )}
             </section>
@@ -468,14 +463,12 @@ export default function App() {
         </main>
       </div>
 
-      <NftDetailModal nft={selectedNft} onClose={() => setSelectedNft(null)} />
-
       <WalletModal
         open={walletModalOpen}
         current={wallet}
-        defaultAddress={WALLET_ADDRESS}
         onClose={() => setWalletModalOpen(false)}
         onApply={handleApplyWallet}
+        onDisconnect={handleDisconnectWallet}
       />
 
       <TxPreviewModal
@@ -483,53 +476,11 @@ export default function App() {
         onClose={() => setPendingTx(null)}
         onCopied={() =>
           showToast(
-            'Ringkasan disalin — tempel di chat dan tulis “ya, eksekusi”.',
+            'Ringkasan disalin — eksekusi dari wallet kamu sendiri.',
             'success',
           )
         }
       />
-
-      <DetailDrawer
-        open={drawerActivity !== null}
-        onClose={() => setDrawerActivity(null)}
-        title={drawerActivity?.title ?? 'Detail Aktivitas'}
-      >
-        {drawerActivity && (
-          <div className="space-y-4 text-sm">
-            <p className="leading-relaxed text-slate-300">
-              {drawerActivity.detail}
-            </p>
-            <dl className="space-y-2.5">
-              <div className="flex justify-between gap-3">
-                <dt className="text-muted">Jenis</dt>
-                <dd className="font-medium capitalize text-white">
-                  {drawerActivity.kind}
-                </dd>
-              </div>
-              <div className="flex justify-between gap-3">
-                <dt className="text-muted">Chain</dt>
-                <dd className="font-medium text-white">
-                  {chainInfo(drawerActivity.chain).name}
-                </dd>
-              </div>
-              <div className="flex justify-between gap-3">
-                <dt className="text-muted">Waktu</dt>
-                <dd className="text-slate-300">
-                  {formatDateTime(drawerActivity.timestamp)}
-                </dd>
-              </div>
-              {drawerActivity.txHash && (
-                <div className="flex items-center justify-between gap-3">
-                  <dt className="text-muted">Tx Hash</dt>
-                  <dd>
-                    <CopyAddressButton address={drawerActivity.txHash} />
-                  </dd>
-                </div>
-              )}
-            </dl>
-          </div>
-        )}
-      </DetailDrawer>
 
       <Toast toast={toast} />
     </div>

@@ -17,27 +17,27 @@ export const VIEWS: readonly ViewMeta[] = [
   {
     id: 'overview',
     label: 'Overview',
-    description: 'Ringkasan portofolio, gas, dan aktivitas terbaru.',
+    description: 'Harga pasar, gas termurah, dan yield terbaik — data publik live.',
   },
   {
     id: 'crypto',
     label: 'Crypto & DeFi',
-    description: 'Portofolio multi-chain, gas tracker, dan perbandingan yield.',
+    description: 'Saldo native wallet kamu, gas tracker, dan perbandingan yield.',
   },
   {
     id: 'nft',
     label: 'NFT Hub',
-    description: 'Galeri NFT dan preview mint / event pass.',
+    description: 'Cek NFT apa pun via kontrak + token ID, dan preview mint / event pass.',
   },
   {
     id: 'security',
     label: 'Security Scanner',
-    description: 'Pindai risiko kontrak dan periksa approval wallet.',
+    description: 'Pindai risiko kontrak dan periksa approval wallet kamu.',
   },
   {
     id: 'activity',
     label: 'Activity',
-    description: 'Seluruh riwayat transaksi dan aksi di Web3 Hub.',
+    description: 'Tautan explorer untuk melihat riwayat alamat wallet yang aktif.',
   },
 ] as const;
 

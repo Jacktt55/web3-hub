@@ -12,8 +12,8 @@ interface TxPreviewModalProps {
 
 /**
  * Transaction preview modal — PREVIEW ONLY.
- * The app never signs or broadcasts. To execute, the user copies the
- * one-line summary into the chat and confirms; Guts executes it there.
+ * The app never signs or broadcasts. The visitor executes the
+ * transaction from their own wallet after checking the details.
  */
 export default function TxPreviewModal({
   tx,
@@ -70,8 +70,8 @@ export default function TxPreviewModal({
             <Info className="mt-0.5 h-4 w-4 shrink-0 text-accent-2" />
             <p>
               Ini <b className="text-white">preview saja</b> — tidak ada
-              transaksi yang dikirim dari aplikasi ini. Eksekusi dilakukan
-              Guts setelah kamu konfirmasi di chat.
+              transaksi yang dikirim dari aplikasi ini. Eksekusi dari wallet
+              kamu sendiri setelah memeriksa ulang detailnya.
             </p>
           </div>
 
@@ -157,8 +157,8 @@ export default function TxPreviewModal({
             </button>
           </div>
           <p className="text-center text-xs text-muted">
-            Tempel ringkasan di chat dan tulis “ya, eksekusi” — Guts yang
-            mengeksekusi setelah konfirmasi kamu.
+            Salin ringkasan dan eksekusi dari wallet kamu — selalu periksa
+            chain, alamat & calldata sebelum menandatangani.
           </p>
         </div>
       </div>

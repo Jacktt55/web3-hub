@@ -12,8 +12,8 @@ interface TopbarProps {
   onMenuClick: () => void;
   /** Gas rows for the chips — live when the hook has answered. */
   gasFees?: readonly GasFee[];
-  /** Active wallet address (changeable via the modal). */
-  wallet: Address;
+  /** Active wallet address, null when no wallet is entered yet. */
+  wallet: Address | null;
   onWalletClick: () => void;
 }
 
@@ -92,15 +92,26 @@ export default function Topbar({
           <span className="hidden sm:inline">Segarkan</span>
         </button>
 
-        <button
-          onClick={onWalletClick}
-          title="Connect Wallet — ganti alamat wallet (hanya membaca data publik on-chain)"
-          className="flex items-center gap-1.5 rounded-xl border border-line bg-surface py-1.5 pl-3 pr-2.5 font-mono text-xs text-slate-200 transition-colors hover:border-accent/50"
-        >
-          <span className="h-2 w-2 shrink-0 rounded-full bg-profit" />
-          {shortenAddress(wallet)}
-          <Wallet className="h-3.5 w-3.5 text-muted" />
-        </button>
+        {wallet ? (
+          <button
+            onClick={onWalletClick}
+            title="Ganti alamat wallet (hanya membaca data publik on-chain)"
+            className="flex items-center gap-1.5 rounded-xl border border-line bg-surface py-1.5 pl-3 pr-2.5 font-mono text-xs text-slate-200 transition-colors hover:border-accent/50"
+          >
+            <span className="h-2 w-2 shrink-0 rounded-full bg-profit" />
+            {shortenAddress(wallet)}
+            <Wallet className="h-3.5 w-3.5 text-muted" />
+          </button>
+        ) : (
+          <button
+            onClick={onWalletClick}
+            title="Masukkan alamat wallet untuk membaca data publik on-chain"
+            className="flex items-center gap-1.5 rounded-xl bg-accent px-3.5 py-2.5 text-xs font-semibold text-white shadow-lg shadow-accent/20 transition-colors hover:bg-blue-600"
+          >
+            <Wallet className="h-3.5 w-3.5" />
+            Connect Wallet
+          </button>
+        )}
       </div>
     </header>
   );

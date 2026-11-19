@@ -47,7 +47,7 @@ export function isAddress(value: string | null | undefined): boolean {
   return typeof value === 'string' && /^0x[0-9a-fA-F]{40}$/.test(value);
 }
 
-/** 0xDf0b…58ff — shortened address. */
+/** 0x71C7…789A — shortened address. */
 export function shortenAddress(address: string, chars = 4): string {
   if (address.length <= chars * 2 + 2) return address;
   return `${address.slice(0, chars + 2)}…${address.slice(-chars)}`;

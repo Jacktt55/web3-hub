@@ -17,24 +17,35 @@ const RISK_BADGE = {
 interface YieldComparatorProps {
   pools: readonly YieldPool[];
   live?: boolean;
+  /** Topbar search query — filters by protocol or pair. */
+  query?: string;
 }
 
 /** DeFi yield comparison table, sortable by APY or TVL. */
 export default function YieldComparator({
   pools,
   live = false,
+  query = '',
 }: YieldComparatorProps) {
   const [sortKey, setSortKey] = useState<SortKey>('apy');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
 
+  const q = query.trim().toLowerCase();
+  const filtered = pools.filter(
+    (p) =>
+      q === '' ||
+      p.protocol.toLowerCase().includes(q) ||
+      p.pair.toLowerCase().includes(q),
+  );
+
   const sorted = useMemo(() => {
-    const copy = [...pools];
+    const copy = [...filtered];
     copy.sort((a, b) => {
       const diff = sortKey === 'apy' ? a.apy - b.apy : a.tvlUsd - b.tvlUsd;
       return sortDir === 'desc' ? -diff : diff;
     });
     return copy;
-  }, [pools, sortKey, sortDir]);
+  }, [filtered, sortKey, sortDir]);
 
   function toggleSort(key: SortKey): void {
     if (key === sortKey) {
@@ -135,6 +146,13 @@ export default function YieldComparator({
                 </tr>
               );
             })}
+            {sorted.length === 0 && (
+              <tr>
+                <td colSpan={6} className="py-8 text-center text-muted">
+                  Tidak ada pool yang cocok dengan “{query}”.
+                </td>
+              </tr>
+            )}
           </tbody>
         </table>
       </div>

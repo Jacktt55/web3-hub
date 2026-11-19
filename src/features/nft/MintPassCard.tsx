@@ -16,16 +16,10 @@ const STATUS_LABEL = {
 interface MintPassCardProps {
   pass: MintPass;
   onPreview?: (pass: MintPass) => void;
-  /** Live status line, e.g. pool phase — shown under the progress bar. */
-  liveNote?: string;
 }
 
 /** No-code mint / event pass preview card. */
-export default function MintPassCard({
-  pass,
-  onPreview,
-  liveNote,
-}: MintPassCardProps) {
+export default function MintPassCard({ pass, onPreview }: MintPassCardProps) {
   const pct =
     pass.supply > 0 ? Math.min((pass.minted / pass.supply) * 100, 100) : 0;
 
@@ -65,10 +59,6 @@ export default function MintPassCard({
           style={{ width: `${Math.max(pct, 2)}%` }}
         />
       </div>
-
-      {liveNote && (
-        <p className="mb-4 text-xs font-medium text-accent-2">{liveNote}</p>
-      )}
 
       <button
         onClick={() => onPreview?.(pass)}

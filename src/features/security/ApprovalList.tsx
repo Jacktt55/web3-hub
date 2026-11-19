@@ -22,9 +22,9 @@ interface ApprovalListProps {
 }
 
 /**
- * Wallet approval checker — allowances read live on-chain.
- * Revoke is prepared as a preview; execution happens in chat with
- * Guts after the user's explicit confirmation.
+ * Wallet approval checker — allowances read live on-chain for the
+ * visitor's own wallet. Revoke is prepared as a preview only;
+ * execution happens from the visitor's own wallet.
  */
 export default function ApprovalList({
   approvals,
@@ -39,7 +39,7 @@ export default function ApprovalList({
           {approvalsLive ? (
             <Badge variant="green">Live · on-chain</Badge>
           ) : (
-            <Badge variant="blue">Seed</Badge>
+            <Badge variant="blue">Menunggu data live</Badge>
           )}
           <Badge
             variant={
@@ -67,14 +67,25 @@ export default function ApprovalList({
         </div>
       ) : approvals.length === 0 ? (
         <div className="rounded-xl border border-line bg-bg p-6 text-center">
-          <p className="text-sm font-semibold text-profit">
-            Tidak ada approval aktif — wallet bersih.
-          </p>
-          <p className="mt-1 text-xs text-muted">
-            {approvalsLive
-              ? 'Dibaca on-chain dari watchlist token × spender.'
-              : 'Menunggu pembacaan on-chain pertama…'}
-          </p>
+          {approvalsLive ? (
+            <>
+              <p className="text-sm font-semibold text-profit">
+                Tidak ada approval aktif — wallet bersih.
+              </p>
+              <p className="mt-1 text-xs text-muted">
+                Dibaca on-chain dari watchlist token × spender.
+              </p>
+            </>
+          ) : (
+            <>
+              <p className="text-sm font-semibold text-amber">
+                Pembacaan on-chain belum berhasil.
+              </p>
+              <p className="mt-1 text-xs text-muted">
+                RPC tidak menjawab — coba segarkan halaman.
+              </p>
+            </>
+          )}
         </div>
       ) : (
         <ul className="space-y-2.5">

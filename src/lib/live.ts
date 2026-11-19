@@ -2,16 +2,12 @@ import type { Address } from '../types';
 import type {
   ChainId,
   GasFee,
-  NftItem,
   PreparedTx,
   RiskLevel,
   TokenApproval,
   YieldPool,
 } from '../types';
-import {
-  TOKEN_APPROVALS,
-  chainInfo,
-} from '../data';
+import { chainInfo } from '../data';
 import { formatUnits, formatUsd, shortenAddress } from './format';
 import {
   CHAIN_ID_NUMBERS,
@@ -239,24 +235,62 @@ function toGateway(uri: string): string {
   return uri;
 }
 
+export interface NftMetadata {
+  name: string;
+  image: string | null;
+  description: string;
+  attributes: { trait_type: string; value: string }[];
+}
+
 /**
- * Resolve an NFT's real artwork via on-chain tokenURI → metadata JSON.
- * Returns null on any failure; the caller keeps the placeholder image.
+ * Read an NFT's metadata on-chain: tokenURI → metadata JSON.
+ * Works for any ERC-721 contract + token ID the visitor enters.
+ * Returns null on any failure (not an ERC-721, no tokenURI, bad JSON).
  */
-export async function resolveNftImage(nft: NftItem): Promise<string | null> {
-  if (!nft.contract) return null;
+export async function fetchNftMetadata(
+  chain: ChainId,
+  contract: string,
+  tokenId: string,
+): Promise<NftMetadata | null> {
   try {
-    const data =
-      SELECTORS.tokenURI + encodeUint256(BigInt(nft.tokenId));
-    const raw = await ethCall(nft.chain, nft.contract, data);
+    const uriData = SELECTORS.tokenURI + encodeUint256(BigInt(tokenId));
+    const raw = await ethCall(chain, contract, uriData);
     const uri = decodeAbiString(raw);
     if (!uri) return null;
     const res = await fetch(toGateway(uri), {
       signal: AbortSignal.timeout(10000),
     });
     if (!res.ok) return null;
-    const meta = (await res.json()) as { image?: unknown };
-    return typeof meta.image === 'string' ? toGateway(meta.image) : null;
+    const meta = (await res.json()) as {
+      name?: unknown;
+      image?: unknown;
+      description?: unknown;
+      attributes?: unknown;
+    };
+    const attributes = Array.isArray(meta.attributes)
+      ? meta.attributes
+          .filter(
+            (a): a is { trait_type: unknown; value: unknown } =>
+              typeof a === 'object' &&
+              a !== null &&
+              'trait_type' in a &&
+              'value' in a,
+          )
+          .map((a) => ({
+            trait_type: String(a.trait_type),
+            value: String(a.value),
+          }))
+      : [];
+    return {
+      name:
+        typeof meta.name === 'string' && meta.name !== ''
+          ? meta.name
+          : `#${tokenId}`,
+      image: typeof meta.image === 'string' ? toGateway(meta.image) : null,
+      description:
+        typeof meta.description === 'string' ? meta.description : '',
+      attributes,
+    };
   } catch {
     return null;
   }
@@ -298,14 +332,6 @@ export const APPROVAL_WATCHLIST: readonly ApprovalWatch[] = [
     chain: 'ethereum',
     spender: 'Uniswap V3 Router',
     spenderAddress: '0xE592427A0AEce92De3Edee1F18E0157C05861564',
-  },
-  {
-    token: 'AUGENT',
-    tokenAddress: '0xAAdD9058b3DaaB00439457D82c2C508a5cc1c393',
-    decimals: 18,
-    chain: 'bsc',
-    spender: 'Augent Sale',
-    spenderAddress: '0xAAdD9058b3DaaB00439457D82c2C508a5cc1c393',
   },
 ] as const;
 
@@ -349,9 +375,6 @@ export async function fetchLiveApprovals(
       const value = decodeUint256(raw);
       if (value === 0n) continue;
       const unlimited = value >= 2n ** 255n;
-      const seed = TOKEN_APPROVALS.find(
-        (a) => a.token === w.token && a.spender === w.spender,
-      );
       out.push({
         id: `live-${w.token}-${w.spender}`
           .toLowerCase()
@@ -364,41 +387,13 @@ export async function fetchLiveApprovals(
           ? 'Unlimited'
           : `${formatUnits(value, w.decimals)} ${w.token}`,
         risk: unlimited ? 'medium' : 'low',
-        lastUsed: seed?.lastUsed ?? '',
+        lastUsed: '',
       });
     } catch {
       // skip this pair on RPC failure
     }
   }
   return out;
-}
-
-/* ------------------------- AUGENT pool status ---------------------- */
-
-export const AUGENT_CONTRACT =
-  '0xAAdD9058b3DaaB00439457D82c2C508a5cc1c393' as const;
-
-/** phase(): 1 = sale, 2 = ended, 3 = pool open (claimable). */
-export async function fetchAugentStatus(owner: string): Promise<{
-  phase: number;
-  claimable: bigint;
-} | null> {
-  try {
-    const [phaseRaw, claimRaw] = await Promise.all([
-      ethCall('bsc', AUGENT_CONTRACT, SELECTORS.augentPhase),
-      ethCall(
-        'bsc',
-        AUGENT_CONTRACT,
-        SELECTORS.augentClaimableOf + encodeAddress(owner),
-      ),
-    ]);
-    return {
-      phase: Number(decodeUint256(phaseRaw)),
-      claimable: decodeUint256(claimRaw),
-    };
-  } catch {
-    return null;
-  }
 }
 
 /* --------------------------- Live scanner -------------------------- */
@@ -468,8 +463,8 @@ export async function scanContractLive(
 }
 
 /* --------------------- Transaction preparation --------------------- */
-/* Preview only — nothing here signs or broadcasts. Execution happens */
-/* in chat with Guts after the user's explicit confirmation.          */
+/* Preview only — nothing here signs or broadcasts. The visitor     */
+/* executes from their own wallet after checking the details.      */
 
 export async function prepareRevokeTx(
   watch: ApprovalWatch,
@@ -503,62 +498,5 @@ export async function prepareRevokeTx(
     feeUsd,
     calldata,
     summary: `Revoke ${watch.token} → ${watch.spender} | ${chainInfo(watch.chain).name} | approve(spender, 0) | value 0 | gas ~${gas} | fee ~${feeNative} (~${feeUsd})`,
-  };
-}
-
-export async function prepareAugentClaimTx(
-  nativePriceUsd: number,
-  wallet: Address,
-): Promise<PreparedTx> {
-  const calldata = SELECTORS.augentClaim;
-  const [gas, gasPrice, estimated] = await Promise.all([
-    ethEstimateGas('bsc', {
-      from: wallet,
-      to: AUGENT_CONTRACT,
-      data: calldata,
-    })
-      .then((g) => ({ gas: g, ok: true }))
-      .catch(() => ({ gas: 100000n, ok: false })),
-    ethGasPrice('bsc').catch(() => 0n),
-  ]).then(([g, p]) => [g.gas, p, g.ok] as const);
-  const feeWei = gas * gasPrice;
-  const feeNative = `${formatUnits(feeWei, 18)} BNB`;
-  const feeUsd = formatUsd((Number(feeWei) * nativePriceUsd) / 1e18);
-  return {
-    title: 'Claim 200.000 AUGENT',
-    chain: 'bsc',
-    from: wallet,
-    to: AUGENT_CONTRACT as Address,
-    functionName: 'claim()',
-    value: '0',
-    gasEstimate: estimated ? gas : null,
-    gasPriceWei: gasPrice,
-    feeNative,
-    feeUsd,
-    calldata,
-    note: estimated
-      ? undefined
-      : 'Estimasi gas gagal — kemungkinan pool belum buka (fase bukan 3). Jangan eksekusi sebelum fase 3 terkonfirmasi.',
-    summary: `Claim AUGENT | BSC | claim() | value 0 | gas ~${gas} | fee ~${feeNative} (~${feeUsd})`,
-  };
-}
-
-/** Static preview for Presschain printFree — no live reads (Presschain ditunda). */
-export function preparePresschainPreview(wallet: Address): PreparedTx {
-  return {
-    title: 'Mint gratis Presschain Edition 9',
-    chain: 'bsc',
-    from: wallet,
-    to: '0xE77D762716A98DbCDA3ECb205C0F92fBc161A64E',
-    functionName: 'printFree(<jawaban>)',
-    value: '0',
-    gasEstimate: null,
-    gasPriceWei: 0n,
-    feeNative: '—',
-    feeUsd: '—',
-    calldata: `${SELECTORS.presschainPrintFree}…`,
-    note: 'Jawaban soal Agent ID & estimasi gas diverifikasi Guts di chat sebelum eksekusi — cek edisi 9 terjadwal besok 07:05 WIB.',
-    summary:
-      'Mint gratis Presschain Edition 9 | BSC | printFree(<jawaban>) | value 0 | jawaban + gas diverifikasi di chat',
   };
 }
