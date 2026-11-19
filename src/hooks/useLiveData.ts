@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { GAS_FEES, NFTS, YIELD_POOLS } from '../data';
-import type { GasFee, TokenApproval, YieldPool } from '../types';
+import type { Address, GasFee, TokenApproval, YieldPool } from '../types';
 import {
   fetchAugentStatus,
   fetchLiveApprovals,
@@ -38,7 +38,7 @@ export interface LiveData {
  * NFT artwork once on mount. Any failure keeps the previous value
  * (or the seed) — the app never goes blank.
  */
-export function useLiveData(): LiveData {
+export function useLiveData(wallet: Address): LiveData {
   const [prices, setPrices] = useState<Record<string, number> | null>(null);
   const [changes, setChanges] = useState<Record<string, number> | null>(
     null,
@@ -62,6 +62,12 @@ export function useLiveData(): LiveData {
       void fn();
       timers.push(window.setInterval(fn, ms));
     };
+
+    // A new wallet means new on-chain reads — drop the old ones.
+    setApprovals(null);
+    setApprovalsLive(false);
+    setAugentPhase(null);
+    setAugentClaimable(null);
 
     async function refreshPrices(): Promise<void> {
       try {
@@ -107,7 +113,7 @@ export function useLiveData(): LiveData {
 
     async function refreshApprovals(): Promise<void> {
       try {
-        const a = await fetchLiveApprovals();
+        const a = await fetchLiveApprovals(wallet);
         if (cancelled) return;
         setApprovals(a);
         setApprovalsLive(true);
@@ -118,7 +124,7 @@ export function useLiveData(): LiveData {
     }
 
     async function refreshAugent(): Promise<void> {
-      const s = await fetchAugentStatus();
+      const s = await fetchAugentStatus(wallet);
       if (cancelled || !s) return;
       setAugentPhase(s.phase);
       setAugentClaimable(s.claimable);
@@ -145,7 +151,7 @@ export function useLiveData(): LiveData {
       cancelled = true;
       timers.forEach((t) => window.clearInterval(t));
     };
-  }, []);
+  }, [wallet]);
 
   return {
     prices,

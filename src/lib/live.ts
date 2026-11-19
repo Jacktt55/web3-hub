@@ -10,10 +10,9 @@ import type {
 } from '../types';
 import {
   TOKEN_APPROVALS,
-  WALLET_ADDRESS,
   chainInfo,
 } from '../data';
-import { formatUsd, shortenAddress } from './format';
+import { formatUnits, formatUsd, shortenAddress } from './format';
 import {
   CHAIN_ID_NUMBERS,
   SELECTORS,
@@ -24,6 +23,7 @@ import {
   ethCall,
   ethEstimateGas,
   ethGasPrice,
+  ethGetBalance,
   ethGetCode,
 } from './rpc';
 
@@ -318,27 +318,32 @@ export function findWatch(
   );
 }
 
-function formatUnits(value: bigint, decimals: number): string {
-  const divisor = 10n ** BigInt(decimals);
-  const whole = value / divisor;
-  const frac = value % divisor;
-  if (frac === 0n) return whole.toString();
-  const fracStr = frac
-    .toString()
-    .padStart(decimals, '0')
-    .slice(0, 4)
-    .replace(/0+$/, '');
-  return fracStr === '' ? whole.toString() : `${whole}.${fracStr}`;
+/** Native balances (wei) per EVM chain for an address. */
+export async function fetchNativeBalances(
+  owner: string,
+): Promise<{ chain: ChainId; balance: bigint }[]> {
+  const out: { chain: ChainId; balance: bigint }[] = [];
+  for (const chain of EVM_GAS_CHAINS) {
+    try {
+      const balance = await ethGetBalance(chain, owner);
+      out.push({ chain, balance });
+    } catch {
+      // skip this chain on RPC failure
+    }
+  }
+  return out;
 }
 
 /** Live allowances for the watchlist — empty array means truly none. */
-export async function fetchLiveApprovals(): Promise<TokenApproval[]> {
+export async function fetchLiveApprovals(
+  owner: string,
+): Promise<TokenApproval[]> {
   const out: TokenApproval[] = [];
   for (const w of APPROVAL_WATCHLIST) {
     try {
       const data =
         SELECTORS.allowance +
-        encodeAddress(WALLET_ADDRESS) +
+        encodeAddress(owner) +
         encodeAddress(w.spenderAddress);
       const raw = await ethCall(w.chain, w.tokenAddress, data);
       const value = decodeUint256(raw);
@@ -374,7 +379,7 @@ export const AUGENT_CONTRACT =
   '0xAAdD9058b3DaaB00439457D82c2C508a5cc1c393' as const;
 
 /** phase(): 1 = sale, 2 = ended, 3 = pool open (claimable). */
-export async function fetchAugentStatus(): Promise<{
+export async function fetchAugentStatus(owner: string): Promise<{
   phase: number;
   claimable: bigint;
 } | null> {
@@ -384,7 +389,7 @@ export async function fetchAugentStatus(): Promise<{
       ethCall(
         'bsc',
         AUGENT_CONTRACT,
-        SELECTORS.augentClaimableOf + encodeAddress(WALLET_ADDRESS),
+        SELECTORS.augentClaimableOf + encodeAddress(owner),
       ),
     ]);
     return {
@@ -469,12 +474,13 @@ export async function scanContractLive(
 export async function prepareRevokeTx(
   watch: ApprovalWatch,
   nativePriceUsd: number,
+  wallet: Address,
 ): Promise<PreparedTx> {
   const calldata =
     SELECTORS.approve + encodeAddress(watch.spenderAddress) + encodeUint256(0n);
   const [gas, gasPrice] = await Promise.all([
     ethEstimateGas(watch.chain, {
-      from: WALLET_ADDRESS,
+      from: wallet,
       to: watch.tokenAddress,
       data: calldata,
     }).catch(() => 60000n),
@@ -487,7 +493,7 @@ export async function prepareRevokeTx(
   return {
     title: `Revoke ${watch.token} → ${watch.spender}`,
     chain: watch.chain,
-    from: WALLET_ADDRESS,
+    from: wallet,
     to: watch.tokenAddress as Address,
     functionName: `approve(${shortenAddress(watch.spenderAddress)}, 0)`,
     value: '0',
@@ -502,11 +508,12 @@ export async function prepareRevokeTx(
 
 export async function prepareAugentClaimTx(
   nativePriceUsd: number,
+  wallet: Address,
 ): Promise<PreparedTx> {
   const calldata = SELECTORS.augentClaim;
   const [gas, gasPrice, estimated] = await Promise.all([
     ethEstimateGas('bsc', {
-      from: WALLET_ADDRESS,
+      from: wallet,
       to: AUGENT_CONTRACT,
       data: calldata,
     })
@@ -520,7 +527,7 @@ export async function prepareAugentClaimTx(
   return {
     title: 'Claim 200.000 AUGENT',
     chain: 'bsc',
-    from: WALLET_ADDRESS,
+    from: wallet,
     to: AUGENT_CONTRACT as Address,
     functionName: 'claim()',
     value: '0',
@@ -537,11 +544,11 @@ export async function prepareAugentClaimTx(
 }
 
 /** Static preview for Presschain printFree — no live reads (Presschain ditunda). */
-export function preparePresschainPreview(): PreparedTx {
+export function preparePresschainPreview(wallet: Address): PreparedTx {
   return {
     title: 'Mint gratis Presschain Edition 9',
     chain: 'bsc',
-    from: WALLET_ADDRESS,
+    from: wallet,
     to: '0xE77D762716A98DbCDA3ECb205C0F92fBc161A64E',
     functionName: 'printFree(<jawaban>)',
     value: '0',

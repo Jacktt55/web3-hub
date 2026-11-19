@@ -42,10 +42,29 @@ export function formatPct(n: number): string {
   return `${n > 0 ? '+' : ''}${n.toFixed(2)}%`;
 }
 
+/** True when the value is a well-formed 0x + 40 hex address. */
+export function isAddress(value: string | null | undefined): boolean {
+  return typeof value === 'string' && /^0x[0-9a-fA-F]{40}$/.test(value);
+}
+
 /** 0xDf0b…58ff — shortened address. */
 export function shortenAddress(address: string, chars = 4): string {
   if (address.length <= chars * 2 + 2) return address;
   return `${address.slice(0, chars + 2)}…${address.slice(-chars)}`;
+}
+
+/** 1.2345 — bigint token units to a human amount (up to 4 decimals). */
+export function formatUnits(value: bigint, decimals: number): string {
+  const divisor = 10n ** BigInt(decimals);
+  const whole = value / divisor;
+  const frac = value % divisor;
+  if (frac === 0n) return whole.toString();
+  const fracStr = frac
+    .toString()
+    .padStart(decimals, '0')
+    .slice(0, 4)
+    .replace(/0+$/, '');
+  return fracStr === '' ? whole.toString() : `${whole}.${fracStr}`;
 }
 
 /** "19 Nov 2026, 08:01" — short, locale-neutral timestamp. */

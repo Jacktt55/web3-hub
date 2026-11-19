@@ -1,8 +1,8 @@
-import { Menu, RefreshCw, Search } from 'lucide-react';
-import { GAS_FEES, WALLET_ADDRESS, chainInfo } from '../../data';
+import { Menu, RefreshCw, Search, Wallet } from 'lucide-react';
+import { GAS_FEES, chainInfo } from '../../data';
+import { shortenAddress } from '../../lib/format';
 import { getViewMeta } from '../../lib/router';
-import type { GasFee, View } from '../../types';
-import CopyAddressButton from '../ui/CopyAddressButton';
+import type { Address, GasFee, View } from '../../types';
 
 interface TopbarProps {
   view: View;
@@ -12,6 +12,9 @@ interface TopbarProps {
   onMenuClick: () => void;
   /** Gas rows for the chips — live when the hook has answered. */
   gasFees?: readonly GasFee[];
+  /** Active wallet address (changeable via the modal). */
+  wallet: Address;
+  onWalletClick: () => void;
 }
 
 export default function Topbar({
@@ -21,6 +24,8 @@ export default function Topbar({
   onRefresh,
   onMenuClick,
   gasFees = GAS_FEES,
+  wallet,
+  onWalletClick,
 }: TopbarProps) {
   const meta = getViewMeta(view);
   const ethGas = gasFees.find((g) => g.chain === 'ethereum');
@@ -77,10 +82,15 @@ export default function Topbar({
           <span className="hidden sm:inline">Segarkan</span>
         </button>
 
-        <div className="flex items-center gap-1.5 rounded-xl border border-line bg-surface py-1.5 pl-3 pr-1.5">
+        <button
+          onClick={onWalletClick}
+          title="Ganti wallet — alamat hanya dipakai untuk membaca data publik on-chain"
+          className="flex items-center gap-1.5 rounded-xl border border-line bg-surface py-1.5 pl-3 pr-2.5 font-mono text-xs text-slate-200 transition-colors hover:border-accent/50"
+        >
           <span className="h-2 w-2 shrink-0 rounded-full bg-profit" />
-          <CopyAddressButton address={WALLET_ADDRESS} />
-        </div>
+          {shortenAddress(wallet)}
+          <Wallet className="h-3.5 w-3.5 text-muted" />
+        </button>
       </div>
     </header>
   );

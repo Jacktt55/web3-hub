@@ -19,6 +19,7 @@ import DetailDrawer from './components/layout/DetailDrawer';
 import Toast from './components/layout/Toast';
 import type { ToastData } from './components/layout/Toast';
 import TxPreviewModal from './components/layout/TxPreviewModal';
+import WalletModal from './components/layout/WalletModal';
 import CopyAddressButton from './components/ui/CopyAddressButton';
 import PortfolioTable from './features/crypto/PortfolioTable';
 import GasTracker from './features/crypto/GasTracker';
@@ -41,7 +42,7 @@ import {
   chainInfo,
   cheapestGas,
 } from './data';
-import { formatDateTime, formatUsd, timeAgo } from './lib/format';
+import { formatDateTime, formatUsd, isAddress, timeAgo } from './lib/format';
 import {
   findWatch,
   prepareAugentClaimTx,
@@ -52,6 +53,7 @@ import { getViewMeta } from './lib/router';
 import type {
   ActivityItem,
   ActivityKind,
+  Address,
   MintPass,
   NftItem,
   PreparedTx,
@@ -137,8 +139,17 @@ export default function App() {
     null,
   );
   const [pendingTx, setPendingTx] = useState<PreparedTx | null>(null);
+  const [walletModalOpen, setWalletModalOpen] = useState(false);
+  /** Active wallet — saved in this browser only, default is the user's. */
+  const [wallet, setWallet] = useState<Address>(() => {
+    const saved =
+      typeof window === 'undefined'
+        ? null
+        : window.localStorage.getItem('web3hub-wallet');
+    return isAddress(saved) ? (saved as Address) : WALLET_ADDRESS;
+  });
 
-  const live = useLiveData();
+  const live = useLiveData(wallet);
 
   useEffect(() => {
     if (!toast) return;
@@ -183,6 +194,18 @@ export default function App() {
         ? 'Pool BUKA (fase 3) — claim siap dieksekusi.'
         : `Pool belum buka (fase ${live.augentPhase}) — auto-claim aktif, pantau tiap jam.`;
 
+  function handleApplyWallet(address: Address): void {
+    setWallet(address);
+    window.localStorage.setItem('web3hub-wallet', address);
+    setWalletModalOpen(false);
+    showToast(
+      address === WALLET_ADDRESS
+        ? 'Wallet dikembalikan ke alamat default.'
+        : `Wallet aktif diganti ke ${address.slice(0, 6)}…${address.slice(-4)}.`,
+      'success',
+    );
+  }
+
   async function handleRevokeRequest(
     approval: TokenApproval,
   ): Promise<void> {
@@ -196,7 +219,7 @@ export default function App() {
     try {
       const nativePrice =
         live.prices?.[chainInfo(watch.chain).nativeSymbol] ?? 0;
-      const tx = await prepareRevokeTx(watch, nativePrice);
+      const tx = await prepareRevokeTx(watch, nativePrice, wallet);
       setPendingTx(tx);
     } catch {
       showToast('Gagal menyiapkan preview revoke — RPC tidak menjawab.');
@@ -210,7 +233,7 @@ export default function App() {
     }
     if (pass.id === 'augent-claim') {
       try {
-        const tx = await prepareAugentClaimTx(live.prices?.BNB ?? 0);
+        const tx = await prepareAugentClaimTx(live.prices?.BNB ?? 0, wallet);
         setPendingTx(tx);
       } catch {
         showToast('Gagal menyiapkan preview claim — RPC tidak menjawab.');
@@ -219,7 +242,7 @@ export default function App() {
     }
     if (pass.id === 'presschain-ed9') {
       // Static preview only — no live Presschain reads (Presschain ditunda).
-      setPendingTx(preparePresschainPreview());
+      setPendingTx(preparePresschainPreview(wallet));
       return;
     }
     showToast(`Preview ${pass.title} — ${pass.price} · ${pass.date}`);
@@ -239,7 +262,7 @@ export default function App() {
       <Sidebar
         view={view}
         onNavigate={setView}
-        walletAddress={WALLET_ADDRESS}
+        walletAddress={wallet}
         open={sidebarOpen}
         onClose={() => setSidebarOpen(false)}
       />
@@ -250,6 +273,8 @@ export default function App() {
           query={query}
           onQueryChange={setQuery}
           gasFees={live.gas}
+          wallet={wallet}
+          onWalletClick={() => setWalletModalOpen(true)}
           onRefresh={() =>
             showToast(
               'Data live menyegarkan otomatis (harga 30 dtk, gas 15 dtk).',
@@ -274,6 +299,14 @@ export default function App() {
                 ? `LIVE · terakhir diperbarui ${live.lastUpdated?.toLocaleTimeString('en-GB') ?? '—'}`
                 : 'SNAPSHOT — menunggu data live pertama…'}
             </p>
+            {wallet !== WALLET_ADDRESS && (
+              <p className="mt-1.5 text-xs text-accent-2">
+                Wallet aktif {wallet.slice(0, 6)}…{wallet.slice(-4)} —
+                portofolio, NFT & aktivitas masih snapshot wallet default
+                19 Nov 2026; approval, AUGENT & preview transaksi memakai
+                alamat ini.
+              </p>
+            )}
           </header>
 
           {view === 'overview' && (
@@ -435,6 +468,14 @@ export default function App() {
       </div>
 
       <NftDetailModal nft={selectedNft} onClose={() => setSelectedNft(null)} />
+
+      <WalletModal
+        open={walletModalOpen}
+        current={wallet}
+        defaultAddress={WALLET_ADDRESS}
+        onClose={() => setWalletModalOpen(false)}
+        onApply={handleApplyWallet}
+      />
 
       <TxPreviewModal
         tx={pendingTx}
