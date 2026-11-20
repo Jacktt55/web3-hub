@@ -930,7 +930,7 @@ export default function App() {
                 Riwayat di Explorer
               </h2>
               <p className="mb-4 text-sm text-muted">
-                Web3 Hub tidak menyimpan riwayat transaksi — riwayat lengkap
+                TrashGod Vault tidak menyimpan riwayat transaksi — riwayat lengkap
                 alamat ini ada di explorer tiap chain.
               </p>
               {activeWallet ? (

@@ -10,7 +10,7 @@ import type { DemoNft, MintPass } from '../types';
 export const MINT_PASSES: readonly MintPass[] = [
   {
     id: 'web3hub-genesis-demo',
-    title: 'Web3 Hub Genesis Pass (Demo)',
+    title: 'TrashGod Vault Genesis Pass (Demo)',
     event: 'Contoh tampilan mint pass — early access + event pass',
     date: 'Contoh — belum ada jadwal live',
     price: 'Contoh',

@@ -82,7 +82,7 @@ export default function Sidebar({
             </span>
             <span className="text-left leading-none">
               <span className="block text-lg font-bold tracking-tight text-white">
-                Web3<span className="text-accent">Hub</span>
+                TrashGod <span className="text-accent">Vault</span>
               </span>
               <span className="mt-1 block text-[10px] font-medium uppercase tracking-[0.15em] text-muted">
                 Portfolio · NFT · Security

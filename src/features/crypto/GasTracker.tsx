@@ -33,7 +33,7 @@ export default function GasTracker({
       <div className="mb-1 flex items-center justify-between gap-3">
         <h2 className="flex items-center gap-2 text-lg font-bold text-white">
           Gas Tracker
-          <Tooltip text="Gas fee = biaya untuk menjalankan transaksi di blockchain. Makin ramai jaringan, makin mahal. Biaya ini dibayar ke validator, bukan ke Web3 Hub.">
+          <Tooltip text="Gas fee = biaya untuk menjalankan transaksi di blockchain. Makin ramai jaringan, makin mahal. Biaya ini dibayar ke validator, bukan ke TrashGod Vault.">
             <span className="flex h-4 w-4 cursor-help items-center justify-center rounded-full border border-line bg-surface-2 text-[10px] font-bold text-muted hover:border-accent hover:text-white">
               ?
             </span>
