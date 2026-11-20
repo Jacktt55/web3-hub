@@ -58,10 +58,10 @@ export default function Sidebar({
           open ? 'translate-x-0' : '-translate-x-full'
         }`}
       >
-        <div className="flex h-16 flex-none items-center justify-between border-b border-line px-6">
+        <div className="flex h-16 flex-none items-center justify-between border-b border-line px-4">
           <button
             onClick={() => onNavigate('overview')}
-            className="flex items-center gap-3"
+            className="flex min-w-0 items-center gap-2"
           >
             <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-accent to-accent-2 p-[1px] shadow-lg shadow-accent/25">
               <span className="flex h-full w-full items-center justify-center rounded-[11px] bg-bg">
@@ -80,8 +80,8 @@ export default function Sidebar({
                 </svg>
               </span>
             </span>
-            <span className="text-left leading-none">
-              <span className="block text-lg font-bold tracking-tight text-white">
+            <span className="min-w-0 text-right leading-none">
+              <span className="block whitespace-nowrap text-[13px] font-bold tracking-tight text-white lg:text-base">
                 TrashGod <span className="text-accent">Vault</span>
               </span>
               <span className="mt-1 block text-[10px] font-medium uppercase tracking-[0.15em] text-muted">
